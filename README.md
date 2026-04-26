@@ -1,36 +1,89 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# NLumination
 
-## Getting Started
+A web-based color grading tool that lets anyone transform their photos using
+natural language prompts. Lightroom-grade controls, no plugin to install,
+and the smart-prompt parser runs entirely in the browser — no LLM call.
 
-First, run the development server:
+## Stack
+
+- **Framework**: Next.js 16 (App Router) + React 19 + TypeScript
+- **Styling**: Tailwind v4
+- **Auth**: Clerk
+- **Database**: Neon (serverless Postgres) via Drizzle ORM
+- **Storage**: Cloudinary (image CDN + transformations, free 25 GB no card)
+- **Image processing**: WebGL2 (custom GLSL, all client-side)
+- **NL parser**: in-house multi-intent compositional parser (zh + en)
+
+## Local development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
+cp .env.local.example .env.local   # then fill in keys
+pnpm db:push                        # apply schema to your Neon DB
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open <http://localhost:3000>.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+If `.env.local` is missing, Clerk falls back to keyless mode (a temporary
+development app is created automatically). Saving to gallery requires real
+Neon + R2 credentials.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Service setup
 
-## Learn More
+### Clerk
 
-To learn more about Next.js, take a look at the following resources:
+1. Create an app at <https://dashboard.clerk.com>.
+2. Copy the publishable + secret keys into `.env.local`.
+3. (Optional) Configure a webhook on `user.created` pointing to
+   `/api/webhooks/clerk` for eager DB user creation. The app also creates
+   the row lazily if the webhook hasn't fired.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Neon
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Create a project at <https://console.neon.tech>.
+2. Copy the **pooled** connection string (with `?sslmode=require`) into
+   `DATABASE_URL`.
+3. Run `pnpm db:push` to create the `users`, `photos`, `edits` tables.
 
-## Deploy on Vercel
+### Cloudinary
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Create a free account at <https://cloudinary.com> (no credit card required).
+2. From the **Dashboard** copy the **Cloud name**, **API Key**, and
+   **API Secret**, and paste them into `CLOUDINARY_CLOUD_NAME`,
+   `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`. Set
+   `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` to the same cloud name (the public
+   one is used by the gallery to construct image URLs).
+3. No CORS / bucket / public-read setup needed — Cloudinary serves
+   uploaded images publicly via `https://res.cloudinary.com/{cloud_name}/...`
+   by default, and applies the `c_limit,w_720,q_auto,f_auto` transform
+   on the fly for gallery thumbnails.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The free Programmable Media plan gives you 25 GB storage, 25 GB monthly
+bandwidth, and 25,000 transformations. When you hit a limit Cloudinary
+stops serving (no surprise bills) — exactly what we want.
+
+## Useful scripts
+
+| Command | What it does |
+|---|---|
+| `pnpm dev` | Local dev server (Turbopack). |
+| `pnpm build` / `pnpm start` | Production build / start. |
+| `pnpm db:generate` | Drizzle: generate a migration from schema diff. |
+| `pnpm db:push` | Drizzle: push current schema to the configured DB. |
+| `pnpm db:studio` | Open Drizzle Studio (web DB viewer). |
+| `pnpm test:parser` | Smoke-test the NL parser with built-in cases. |
+
+## Keyboard shortcuts (editor)
+
+| Key | Action |
+|---|---|
+| `B` (hold) | View original (release to return to graded) |
+| `⌘/Ctrl + S` | Save edit to gallery |
+| `⌘/Ctrl + E` | Export current grade as JPG |
+
+## Deployment
+
+Vercel works out of the box. Set the same env vars in the project settings
+and connect the repo. The `proxy.ts` (Clerk middleware) is deployed
+automatically.

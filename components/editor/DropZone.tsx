@@ -1,0 +1,80 @@
+"use client";
+
+import { useCallback, useRef, useState } from "react";
+import { ImagePlus, Upload } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+type Props = {
+  onImage: (image: ImageBitmap, file: File) => void;
+  className?: string;
+};
+
+const ACCEPTED = ["image/jpeg", "image/png", "image/webp"];
+
+export function DropZone({ onImage, className }: Props) {
+  const [over, setOver] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const accept = useCallback(
+    async (file: File) => {
+      setError(null);
+      if (!ACCEPTED.includes(file.type)) {
+        setError("That file type isn't supported. JPG, PNG, or WebP only.");
+        return;
+      }
+      try {
+        const bmp = await createImageBitmap(file);
+        onImage(bmp, file);
+      } catch (err) {
+        setError("Couldn't decode that image.");
+        console.error(err);
+      }
+    },
+    [onImage],
+  );
+
+  return (
+    <label
+      className={cn(
+        "group relative flex h-full w-full cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[--color-border-strong] bg-[--color-bg-elev-1] text-center transition",
+        over && "border-[--color-accent] bg-[--color-bg-elev-2] ring-accent-glow",
+        className,
+      )}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setOver(false);
+        const file = e.dataTransfer.files[0];
+        if (file) void accept(file);
+      }}
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        accept={ACCEPTED.join(",")}
+        className="sr-only"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void accept(file);
+        }}
+      />
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[--color-bg-elev-3] text-[--color-fg-muted] transition group-hover:bg-[--color-bg-elev-2] group-hover:text-[--color-fg]">
+        {over ? <Upload className="h-5 w-5 text-[--color-accent]" /> : <ImagePlus className="h-5 w-5" />}
+      </div>
+      <div>
+        <div className="text-sm font-medium text-[--color-fg]">
+          Drop a photo, or click to choose
+        </div>
+        <div className="mt-1 text-xs text-[--color-fg-muted]">
+          JPG, PNG, or WebP — full resolution stays on your device.
+        </div>
+      </div>
+      {error && <div className="mt-2 text-xs text-red-400">{error}</div>}
+    </label>
+  );
+}
