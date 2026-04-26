@@ -25,12 +25,12 @@ export type Modifier = {
   phrases: string[];
   /** Multiplier applied to the magnitude of the attached intent. */
   scale: number;
-  /** True if it also flips sign (e.g. "less", "别太"). */
+  /** True if it also flips sign (e.g. "less", "not too"). */
   invert?: boolean;
   /**
    * Where this modifier sits relative to the intent it scales.
-   *  - "pre"   — appears before  ("稍微暖")
-   *  - "post"  — appears after   ("暖一点")
+   *  - "pre"   — appears before  ("subtly warm")
+   *  - "post"  — appears after   ("warmer a bit")
    *  - "either" (default) — try pre first, then post
    */
   position?: "pre" | "post" | "either";

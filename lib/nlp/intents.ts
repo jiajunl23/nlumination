@@ -3,38 +3,38 @@ import type { Intent } from "./types";
 /**
  * The intent dictionary.
  *
- * Each entry covers Chinese + English surface forms and emits one or more
+ * Each entry covers one or more English surface forms and emits one or more
  * parameter ops. The parser walks left-to-right doing longest-match against
- * `phrases`, so order here is irrelevant; what matters is that compound forms
- * (e.g. "阴影偏蓝") appear as their own entry rather than being split into
- * "阴影" + "偏蓝".
+ * `phrases`, so order here is irrelevant; what matters is that compound
+ * forms (e.g. "blue shadows") appear as their own entry rather than being
+ * split into "blue" + "shadows".
  *
  * Magnitudes are tuned to feel like a single press of a Lightroom-equivalent
- * slider — modifiers ("very" / "稍微") scale them at parse time.
+ * slider — modifiers ("very" / "subtly") scale them at parse time.
  */
 export const INTENTS: Intent[] = [
   // ── Light: exposure ────────────────────────────────────────────
   {
     category: "light",
-    phrases: ["亮一点", "提亮", "调亮", "亮", "brighten", "brighter", "lighter"],
+    phrases: ["brighten", "brighter", "lighter", "lift exposure"],
     ops: [{ kind: "delta", path: "exposure", amount: 0.4 }],
     description: "lift exposure",
   },
   {
     category: "light",
-    phrases: ["暗一点", "压暗", "调暗", "暗", "darken", "darker"],
+    phrases: ["darken", "darker", "drop exposure"],
     ops: [{ kind: "delta", path: "exposure", amount: -0.4 }],
     description: "drop exposure",
   },
   {
     category: "light",
-    phrases: ["过曝", "曝光过度", "overexposed"],
+    phrases: ["overexposed", "too bright"],
     ops: [{ kind: "delta", path: "exposure", amount: -0.6 }],
     description: "tame overexposure",
   },
   {
     category: "light",
-    phrases: ["欠曝", "曝光不足", "underexposed"],
+    phrases: ["underexposed", "too dark"],
     ops: [{ kind: "delta", path: "exposure", amount: 0.6 }],
     description: "rescue underexposure",
   },
@@ -43,29 +43,27 @@ export const INTENTS: Intent[] = [
   {
     category: "tone",
     phrases: [
-      "高光留白", "保留高光", "恢复高光", "压高光", "高光下沉", "高光压低",
       "protect highlights", "save highlights", "recover highlights", "tame highlights",
+      "pull highlights",
     ],
     ops: [{ kind: "delta", path: "highlights", amount: -45 }],
     description: "pull highlights",
   },
   {
     category: "tone",
-    phrases: [
-      "打开阴影", "提阴影", "阴影提亮", "拉阴影", "open shadows", "lift shadows",
-    ],
+    phrases: ["open shadows", "lift shadows", "raise shadows"],
     ops: [{ kind: "delta", path: "shadows", amount: 35 }],
     description: "open shadows",
   },
   {
     category: "tone",
-    phrases: ["压黑部", "暗部下沉", "压黑", "压暗部", "deepen blacks", "crush blacks"],
+    phrases: ["deepen blacks", "crush blacks"],
     ops: [{ kind: "delta", path: "blacks", amount: -30 }],
     description: "deepen blacks",
   },
   {
     category: "tone",
-    phrases: ["白点拉满", "提白点", "纯白拉高", "blow whites", "pure whites"],
+    phrases: ["blow whites", "pure whites", "raise whites"],
     ops: [{ kind: "delta", path: "whites", amount: 30 }],
     description: "raise whites",
   },
@@ -73,13 +71,13 @@ export const INTENTS: Intent[] = [
   // ── Light: contrast ──────────────────────────────────────────
   {
     category: "light",
-    phrases: ["对比强一点", "加大对比", "高对比", "硬一点", "punchy", "more contrast"],
+    phrases: ["punchy", "punchier", "more contrast", "high contrast"],
     ops: [{ kind: "delta", path: "contrast", amount: 30 }],
     description: "more contrast",
   },
   {
     category: "light",
-    phrases: ["对比弱一点", "降低对比", "低对比", "平淡", "柔一点", "less contrast", "flat"],
+    phrases: ["less contrast", "low contrast", "flat"],
     ops: [{ kind: "delta", path: "contrast", amount: -25 }],
     description: "less contrast",
   },
@@ -87,37 +85,37 @@ export const INTENTS: Intent[] = [
   // ── Color temperature ────────────────────────────────────────
   {
     category: "color",
-    phrases: ["暖", "暖色", "偏暖", "warm", "warmer", "warm tones"],
+    phrases: ["warm", "warmer", "warm tones"],
     ops: [{ kind: "delta", path: "temperature", amount: 22 }],
     description: "warmer",
   },
   {
     category: "color",
-    phrases: ["冷", "冷色", "偏冷", "冷调", "cool", "cooler", "cool tones"],
+    phrases: ["cool", "cooler", "cool tones"],
     ops: [{ kind: "delta", path: "temperature", amount: -22 }],
     description: "cooler",
   },
   {
     category: "color",
-    phrases: ["偏黄", "黄一点", "yellow tint"],
+    phrases: ["yellow tint"],
     ops: [{ kind: "delta", path: "temperature", amount: 15 }],
     description: "shift yellow",
   },
   {
     category: "color",
-    phrases: ["偏蓝", "蓝一点", "blue tint"],
+    phrases: ["blue tint"],
     ops: [{ kind: "delta", path: "temperature", amount: -15 }],
     description: "shift blue",
   },
   {
     category: "color",
-    phrases: ["偏粉", "粉一点", "magenta tint", "pink tint"],
+    phrases: ["magenta tint", "pink tint"],
     ops: [{ kind: "delta", path: "tint", amount: 18 }],
     description: "shift pink",
   },
   {
     category: "color",
-    phrases: ["偏绿", "绿一点", "green tint"],
+    phrases: ["green tint"],
     ops: [{ kind: "delta", path: "tint", amount: -18 }],
     description: "shift green",
   },
@@ -125,25 +123,25 @@ export const INTENTS: Intent[] = [
   // ── Color: saturation / vibrance ─────────────────────────────
   {
     category: "color",
-    phrases: ["鲜艳", "饱和高", "饱和度高", "色彩浓", "vivid", "saturated", "more saturation"],
+    phrases: ["vivid", "saturated", "more saturation"],
     ops: [{ kind: "delta", path: "saturation", amount: 22 }],
     description: "more saturated",
   },
   {
     category: "color",
-    phrases: ["淡雅", "低饱和", "灰一点", "色彩淡", "muted", "desaturated"],
+    phrases: ["muted", "desaturated", "less saturation"],
     ops: [{ kind: "delta", path: "saturation", amount: -22 }],
     description: "muted color",
   },
   {
     category: "color",
-    phrases: ["黑白", "灰阶", "monochrome", "black and white", "b&w"],
+    phrases: ["monochrome", "black and white", "b&w"],
     ops: [{ kind: "set", path: "saturation", value: -100 }],
     description: "black & white",
   },
   {
     category: "color",
-    phrases: ["通透", "饱和适度提一点", "vibrant", "more vibrance"],
+    phrases: ["vibrant", "more vibrance"],
     ops: [{ kind: "delta", path: "vibrance", amount: 28 }],
     description: "more vibrance",
   },
@@ -151,19 +149,19 @@ export const INTENTS: Intent[] = [
   // ── Effects: clarity / vignette ──────────────────────────────
   {
     category: "effect",
-    phrases: ["清晰", "锐一点", "锐利", "清晰度", "punch", "punchier"],
+    phrases: ["sharp", "sharper", "punch", "more clarity"],
     ops: [{ kind: "delta", path: "clarity", amount: 25 }],
     description: "more clarity",
   },
   {
     category: "effect",
-    phrases: ["朦胧", "柔焦", "softer", "dreamy"],
+    phrases: ["softer", "dreamy", "soft focus"],
     ops: [{ kind: "delta", path: "clarity", amount: -25 }],
     description: "softer",
   },
   {
     category: "effect",
-    phrases: ["暗角", "压角", "聚焦", "vignette", "spotlight"],
+    phrases: ["vignette", "spotlight", "darken corners"],
     ops: [{ kind: "delta", path: "vignette.amount", amount: -28 }],
     description: "darken corners",
   },
@@ -171,7 +169,7 @@ export const INTENTS: Intent[] = [
   // ── HSL: per-color shifts (most common asks) ────────────────
   {
     category: "color",
-    phrases: ["天空更蓝", "蓝色更深", "天蓝一点", "deeper blue sky", "bluer sky"],
+    phrases: ["deeper blue sky", "bluer sky", "deeper sky"],
     ops: [
       { kind: "delta", path: "hsl.blue.saturation", amount: 25 },
       { kind: "delta", path: "hsl.blue.luminance", amount: -15 },
@@ -180,7 +178,7 @@ export const INTENTS: Intent[] = [
   },
   {
     category: "color",
-    phrases: ["草地更绿", "绿色加深", "greener foliage", "deeper greens"],
+    phrases: ["greener foliage", "deeper greens"],
     ops: [
       { kind: "delta", path: "hsl.green.saturation", amount: 20 },
       { kind: "delta", path: "hsl.green.luminance", amount: -10 },
@@ -189,7 +187,7 @@ export const INTENTS: Intent[] = [
   },
   {
     category: "color",
-    phrases: ["皮肤通透", "肤色通透", "skin glow", "warm skin"],
+    phrases: ["skin glow", "warm skin"],
     ops: [
       { kind: "delta", path: "hsl.orange.saturation", amount: -8 },
       { kind: "delta", path: "hsl.orange.luminance", amount: 12 },
@@ -198,7 +196,7 @@ export const INTENTS: Intent[] = [
   },
   {
     category: "color",
-    phrases: ["夕阳更橙", "晚霞", "sunset glow", "golden hour"],
+    phrases: ["sunset glow", "golden hour"],
     ops: [
       { kind: "delta", path: "hsl.orange.saturation", amount: 28 },
       { kind: "delta", path: "hsl.yellow.saturation", amount: 18 },
@@ -208,7 +206,7 @@ export const INTENTS: Intent[] = [
   },
   {
     category: "color",
-    phrases: ["红色更深", "红色加深", "deeper reds"],
+    phrases: ["deeper reds"],
     ops: [
       { kind: "delta", path: "hsl.red.saturation", amount: 22 },
       { kind: "delta", path: "hsl.red.luminance", amount: -8 },
@@ -219,7 +217,7 @@ export const INTENTS: Intent[] = [
   // ── Split toning: explicit shadow / highlight tints ──────────
   {
     category: "tone",
-    phrases: ["阴影偏蓝", "暗部偏蓝", "blue shadows", "shadows blue"],
+    phrases: ["blue shadows", "shadows blue"],
     ops: [
       { kind: "set", path: "splitToning.shadowHue", value: 215 },
       { kind: "delta", path: "splitToning.shadowSaturation", amount: 25 },
@@ -228,7 +226,7 @@ export const INTENTS: Intent[] = [
   },
   {
     category: "tone",
-    phrases: ["阴影偏青", "暗部偏青", "teal shadows"],
+    phrases: ["teal shadows"],
     ops: [
       { kind: "set", path: "splitToning.shadowHue", value: 185 },
       { kind: "delta", path: "splitToning.shadowSaturation", amount: 28 },
@@ -237,7 +235,7 @@ export const INTENTS: Intent[] = [
   },
   {
     category: "tone",
-    phrases: ["阴影偏绿", "暗部偏绿", "green shadows"],
+    phrases: ["green shadows"],
     ops: [
       { kind: "set", path: "splitToning.shadowHue", value: 130 },
       { kind: "delta", path: "splitToning.shadowSaturation", amount: 22 },
@@ -246,7 +244,7 @@ export const INTENTS: Intent[] = [
   },
   {
     category: "tone",
-    phrases: ["高光偏粉", "highlights pink", "pink highlights"],
+    phrases: ["highlights pink", "pink highlights"],
     ops: [
       { kind: "set", path: "splitToning.highlightHue", value: 340 },
       { kind: "delta", path: "splitToning.highlightSaturation", amount: 22 },
@@ -255,7 +253,7 @@ export const INTENTS: Intent[] = [
   },
   {
     category: "tone",
-    phrases: ["高光偏橙", "highlights orange", "orange highlights"],
+    phrases: ["highlights orange", "orange highlights"],
     ops: [
       { kind: "set", path: "splitToning.highlightHue", value: 30 },
       { kind: "delta", path: "splitToning.highlightSaturation", amount: 26 },
@@ -264,7 +262,7 @@ export const INTENTS: Intent[] = [
   },
   {
     category: "tone",
-    phrases: ["高光偏黄", "yellow highlights"],
+    phrases: ["yellow highlights"],
     ops: [
       { kind: "set", path: "splitToning.highlightHue", value: 50 },
       { kind: "delta", path: "splitToning.highlightSaturation", amount: 20 },
@@ -275,49 +273,49 @@ export const INTENTS: Intent[] = [
   // ── Style presets (compose multi-op looks) ──────────────────
   {
     category: "look",
-    phrases: ["电影感", "电影色调", "电影", "cinematic", "movie look"],
+    phrases: ["cinematic", "movie look", "teal and orange"],
     ops: [{ kind: "preset", presetId: "cinematic-teal-orange" }],
     description: "cinematic teal-orange",
   },
   {
     category: "look",
-    phrases: ["胶片", "胶片感", "film look", "filmic"],
+    phrases: ["film look", "filmic", "film"],
     ops: [{ kind: "preset", presetId: "film-emulation" }],
     description: "film emulation",
   },
   {
     category: "look",
-    phrases: ["复古", "vintage", "retro"],
+    phrases: ["vintage", "retro"],
     ops: [{ kind: "preset", presetId: "vintage-fade" }],
     description: "vintage fade",
   },
   {
     category: "look",
-    phrases: ["小清新", "清新", "fresh", "airy", "bright and airy"],
+    phrases: ["bright and airy", "fresh", "airy"],
     ops: [{ kind: "preset", presetId: "bright-airy" }],
     description: "bright & airy",
   },
   {
     category: "look",
-    phrases: ["阴郁", "moody", "dark mood"],
+    phrases: ["moody", "dark mood"],
     ops: [{ kind: "preset", presetId: "moody" }],
     description: "moody",
   },
   {
     category: "look",
-    phrases: ["晨雾", "morning mist", "soft morning"],
+    phrases: ["morning mist", "soft morning"],
     ops: [{ kind: "preset", presetId: "morning-mist" }],
     description: "morning mist",
   },
   {
     category: "look",
-    phrases: ["赛博朋克", "cyberpunk", "neon"],
+    phrases: ["cyberpunk", "neon"],
     ops: [{ kind: "preset", presetId: "cyberpunk" }],
     description: "cyberpunk",
   },
   {
     category: "look",
-    phrases: ["夕阳", "黄金时刻", "sunset", "golden"],
+    phrases: ["sunset", "golden"],
     ops: [{ kind: "preset", presetId: "golden-hour" }],
     description: "golden hour",
   },

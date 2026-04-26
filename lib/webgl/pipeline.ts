@@ -88,6 +88,12 @@ export class Pipeline {
   private intermediate: Framebuffer | null = null;
   private params: GradingParams = DEFAULT_PARAMS;
 
+  // Letterbox: image-aspect rectangle inside the canvas (in canvas pixels).
+  private fitX = 0;
+  private fitY = 0;
+  private fitW = 0;
+  private fitH = 0;
+
   constructor(canvas: HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2", {
       premultipliedAlpha: false,
@@ -155,7 +161,7 @@ export class Pipeline {
     const gl = this.gl;
     const { width: cw, height: ch } = gl.canvas as HTMLCanvasElement;
 
-    // ── Pass 1: grading → intermediate FBO ───────────────────────
+    // ── Pass 1: grading → intermediate FBO (sized to image aspect) ────
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.intermediate.fb);
     gl.viewport(0, 0, this.intermediate.width, this.intermediate.height);
     gl.useProgram(this.gradingProgram);
@@ -163,9 +169,13 @@ export class Pipeline {
     gl.bindVertexArray(this.quad.vao);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 
-    // ── Pass 2: LUT (if present) or copy → canvas ───────────────
+    // ── Pass 2: clear canvas, then letterbox intermediate into the
+    // image-aspect rectangle (no stretch on non-matching aspects). ──
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, cw, ch);
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.viewport(this.fitX, this.fitY, this.fitW, this.fitH);
     if (this.lutTex && this.params.lutOpacity > 0.001) {
       gl.useProgram(this.lutProgram);
       gl.activeTexture(gl.TEXTURE0);
@@ -258,11 +268,25 @@ export class Pipeline {
     canvas.width = Math.round(cssW * dpr);
     canvas.height = Math.round(cssH * dpr);
 
-    // Intermediate FBO matches canvas backing store (display-res render).
+    // Compute the image-aspect rectangle inside the canvas (contain-fit).
+    const imgAR = this.imageW / this.imageH;
+    const canvasAR = canvas.width / canvas.height;
+    if (imgAR > canvasAR) {
+      this.fitW = canvas.width;
+      this.fitH = Math.max(1, Math.round(canvas.width / imgAR));
+    } else {
+      this.fitH = canvas.height;
+      this.fitW = Math.max(1, Math.round(canvas.height * imgAR));
+    }
+    this.fitX = Math.floor((canvas.width - this.fitW) / 2);
+    this.fitY = Math.floor((canvas.height - this.fitH) / 2);
+
+    // Intermediate FBO is sized to the fit rectangle (image aspect, no
+    // stretch). Pass 2 then copies it into the centred fit viewport.
     if (
       this.intermediate &&
-      (this.intermediate.width !== canvas.width ||
-        this.intermediate.height !== canvas.height)
+      (this.intermediate.width !== this.fitW ||
+        this.intermediate.height !== this.fitH)
     ) {
       disposeFramebuffer(gl, this.intermediate);
       this.intermediate = null;
@@ -286,18 +310,18 @@ export class Pipeline {
   // ─────────────────────────────────────────────────────────────
   private allocIntermediate() {
     if (this.intermediate) return;
-    const canvas = this.gl.canvas as HTMLCanvasElement;
-    if (!canvas.width || !canvas.height) return;
-    this.intermediate = createFramebuffer(this.gl, canvas.width, canvas.height);
+    if (!this.fitW || !this.fitH) return;
+    this.intermediate = createFramebuffer(this.gl, this.fitW, this.fitH);
   }
 
   private bindGradingUniforms(forceW?: number, forceH?: number) {
     const gl = this.gl;
     const u = this.gradingU;
     const uf = paramsToUniforms(this.params);
-    const canvas = gl.canvas as HTMLCanvasElement;
-    const w = forceW ?? canvas.width;
-    const h = forceH ?? canvas.height;
+    // Default to the intermediate (image-aspect) FBO so the vignette aspect
+    // matches the photo, not the letterboxed canvas.
+    const w = forceW ?? this.intermediate?.width ?? this.fitW;
+    const h = forceH ?? this.intermediate?.height ?? this.fitH;
 
     // Texture units
     gl.activeTexture(gl.TEXTURE0);

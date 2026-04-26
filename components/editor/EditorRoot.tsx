@@ -3,12 +3,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Cloud, Download, Loader2, RotateCcw, Sliders } from "lucide-react";
+import {
+  ChevronDown,
+  Cloud,
+  Download,
+  Loader2,
+  RotateCcw,
+  Sliders,
+} from "lucide-react";
 import { Canvas, type CanvasHandle } from "./Canvas";
 import { DropZone } from "./DropZone";
 import { SliderPanel } from "./SliderPanel";
 import { BeforeAfterToggle } from "./BeforeAfterToggle";
-import { PromptBar } from "./PromptBar";
+import { ChatPanel } from "./ChatPanel";
 import { DEFAULT_PARAMS, type GradingParams } from "@/lib/grading/params";
 import { saveEdit, uploadAndCreatePhoto } from "@/lib/storage/upload";
 import { cn } from "@/lib/utils";
@@ -30,6 +37,7 @@ export function EditorRoot() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
+  const [adjustmentsOpen, setAdjustmentsOpen] = useState(false);
 
   const isPristine = params === DEFAULT_PARAMS;
   const renderParams = showOriginal ? DEFAULT_PARAMS : params;
@@ -160,10 +168,10 @@ export function EditorRoot() {
   };
 
   return (
-    <div className="grid flex-1 grid-cols-1 gap-4 p-4 md:grid-cols-[minmax(0,1fr)_340px]">
+    <div className="grid h-full flex-1 grid-cols-1 gap-4 p-4 md:grid-cols-[minmax(0,1fr)_380px]">
       {/* Canvas pane */}
-      <div className="flex min-w-0 flex-col gap-3">
-        <div className="relative flex min-h-[480px] flex-1 flex-col overflow-hidden rounded-2xl border border-[--color-border] bg-[--color-bg-elev-1]">
+      <div className="flex min-h-[480px] min-w-0 flex-col">
+        <div className="relative flex flex-1 flex-col overflow-hidden rounded-2xl border border-[--color-border] bg-[--color-bg-elev-1]">
           {loading && (
             <div className="absolute inset-0 z-20 flex items-center justify-center bg-[--color-bg]/70 text-sm text-[--color-fg-muted]">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -176,7 +184,7 @@ export function EditorRoot() {
                 ref={canvasRef}
                 source={source}
                 params={renderParams}
-                className="absolute inset-0"
+                className="absolute inset-0 h-full w-full"
                 onError={(e) => setError(e.message)}
               />
               <div className="absolute left-3 top-3 z-10 flex items-center gap-2">
@@ -197,32 +205,60 @@ export function EditorRoot() {
             </div>
           )}
         </div>
-        <PromptBar params={params} onParams={setParams} />
       </div>
 
-      {/* Right panel */}
-      <aside className="flex max-h-[60vh] flex-col overflow-hidden rounded-2xl border border-[--color-border] bg-[--color-bg-elev-1] md:max-h-none">
-        <header className="flex items-center justify-between border-b border-[--color-border]/60 px-4 py-3">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <Sliders className="h-4 w-4 text-[--color-accent]" />
-            Adjustments
-          </div>
-          <button
-            disabled={isPristine}
-            onClick={() => setParams(DEFAULT_PARAMS)}
-            className={cn(
-              "flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[--color-fg-muted] transition hover:text-[--color-fg]",
-              isPristine && "pointer-events-none opacity-30",
-            )}
-          >
-            <RotateCcw className="h-3 w-3" />
-            Reset
-          </button>
-        </header>
+      {/* Right column: chat panel + collapsible sliders + save */}
+      <aside className="flex min-h-0 flex-col gap-3">
+        <ChatPanel
+          params={params}
+          onParams={setParams}
+          className="min-h-[280px] flex-1"
+        />
 
-        <SliderPanel params={params} onChange={setParams} />
+        {/* Collapsible Adjustments */}
+        <section
+          className={cn(
+            "flex shrink-0 flex-col overflow-hidden rounded-2xl border border-[--color-border] bg-[--color-bg-elev-1] transition-[max-height] duration-200",
+            adjustmentsOpen ? "max-h-[55vh]" : "max-h-12",
+          )}
+        >
+          <header className="flex items-center justify-between border-b border-[--color-border]/60 px-4 py-3">
+            <button
+              type="button"
+              onClick={() => setAdjustmentsOpen((v) => !v)}
+              className="flex flex-1 items-center gap-2 text-left text-sm font-medium text-[--color-fg]"
+              aria-expanded={adjustmentsOpen}
+            >
+              <Sliders className="h-4 w-4 text-[--color-accent]" />
+              Adjustments
+              <ChevronDown
+                className={cn(
+                  "ml-1 h-4 w-4 text-[--color-fg-muted] transition-transform",
+                  adjustmentsOpen ? "rotate-0" : "-rotate-90",
+                )}
+              />
+            </button>
+            <button
+              disabled={isPristine}
+              onClick={() => setParams(DEFAULT_PARAMS)}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[--color-fg-muted] transition hover:text-[--color-fg]",
+                isPristine && "pointer-events-none opacity-30",
+              )}
+            >
+              <RotateCcw className="h-3 w-3" />
+              Reset
+            </button>
+          </header>
+          {adjustmentsOpen && (
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <SliderPanel params={params} onChange={setParams} />
+            </div>
+          )}
+        </section>
 
-        <footer className="flex flex-col gap-2 border-t border-[--color-border]/60 px-4 py-3">
+        {/* Save / export */}
+        <footer className="flex shrink-0 flex-col gap-2 rounded-2xl border border-[--color-border] bg-[--color-bg-elev-1] px-4 py-3">
           {isSignedIn && (
             <button
               disabled={!hasImage || saving}
@@ -234,11 +270,7 @@ export function EditorRoot() {
               ) : (
                 <Cloud className="h-4 w-4" />
               )}
-              {saving
-                ? "Saving…"
-                : photoId
-                ? "Save edit"
-                : "Save to gallery"}
+              {saving ? "Saving…" : photoId ? "Save edit" : "Save to gallery"}
             </button>
           )}
           <button

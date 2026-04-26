@@ -7,8 +7,8 @@
  *      that contains every modifier and every intent surface form.
  *   3. Pair each intent with its modifiers: "pre" mods attach forward,
  *      "post" mods attach backward, "either" mods choose by neighbour.
- *      Handles "稍微暖一点" (both 稍微 and 一点 scale 暖) as well as
- *      "very warm, blue shadows".
+ *      Handles "subtly warmer a bit" (both subtly and a bit scale warm) as
+ *      well as "very warm, blue shadows".
  *   4. Apply each (intent, scale, invert) tuple's ops to a clone of the
  *      current params, in order.
  *
@@ -93,7 +93,7 @@ function tokenize(text: string): Token[] {
 
   while (i < text.length) {
     const ch = text[i];
-    if (/[\s,，、。.!?;；:：]/.test(ch)) {
+    if (/[\s,.!?;:]/.test(ch)) {
       flushUnmatched(i);
       i++;
       unmatchedStart = i;

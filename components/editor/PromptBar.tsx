@@ -52,7 +52,7 @@ export function PromptBar({ params, onParams, className }: Props) {
           type="text"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder='例: "电影感、暖一点、阴影偏蓝"  /  "moody, blue shadows"'
+          placeholder='e.g. "moody, blue shadows, protect highlights"'
           className="min-w-0 flex-1 bg-transparent text-sm text-[--color-fg] placeholder:text-[--color-fg-dim] focus:outline-none"
         />
         <button
