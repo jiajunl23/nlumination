@@ -35,9 +35,18 @@ export function DropZone({ onImage, className }: Props) {
   );
 
   return (
-    <label
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => inputRef.current?.click()}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          inputRef.current?.click();
+        }
+      }}
       className={cn(
-        "group relative flex h-full w-full cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[var(--color-border-strong)] bg-[var(--color-bg-elev-1)] text-center transition",
+        "group relative flex h-full w-full cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[var(--color-border-strong)] bg-[var(--color-bg-elev-1)] text-center transition focus-visible:border-[var(--color-accent)] focus-visible:outline-none focus-visible:ring-accent-glow",
         over && "border-[var(--color-accent)] bg-[var(--color-bg-elev-2)] ring-accent-glow",
         className,
       )}
@@ -58,6 +67,12 @@ export function DropZone({ onImage, className }: Props) {
         type="file"
         accept={ACCEPTED.join(",")}
         className="sr-only"
+        // Some browsers fire `click` on the input when a wrapping <label> is
+        // clicked, then the input bubbles the click back up to the label,
+        // which fires a second click — and in our case Playwright/Chrome saw
+        // the picker open multiple times. Stopping propagation here keeps
+        // the explicit `onClick` handler above as the single trigger.
+        onClick={(e) => e.stopPropagation()}
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) void accept(file);
@@ -75,6 +90,6 @@ export function DropZone({ onImage, className }: Props) {
         </div>
       </div>
       {error && <div className="mt-2 text-xs text-red-400">{error}</div>}
-    </label>
+    </div>
   );
 }
