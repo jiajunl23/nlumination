@@ -29,6 +29,7 @@ export function EditorRoot() {
   const paneRef = useRef<HTMLDivElement | null>(null);
   const [source, setSource] = useState<ImageBitmap | null>(null);
   const [frame, setFrame] = useState<{ w: number; h: number } | null>(null);
+  const [imageVisible, setImageVisible] = useState(false);
   const [params, setParams] = useState<GradingParams>(DEFAULT_PARAMS);
   const [hasImage, setHasImage] = useState(false);
   const [filename, setFilename] = useState<string | null>(null);
@@ -51,15 +52,18 @@ export function EditorRoot() {
     setPhotoId(null);
   }, []);
 
-  // Frame-fit animation: paint at 100%/100% for one frame so the user sees the
-  // letterboxed photo, then transition the inner frame down to the image's
-  // contain-fit pixel size (CSS animates width/height for 500ms).
+  // Frame-fit animation: paint at 100%/100% for one frame, transition the inner
+  // frame down to the image's contain-fit pixel size (CSS animates width/height
+  // for 700 ms), then fade the photo in once the frame has settled — so the
+  // user never sees the WebGL canvas mid-resize blink.
   useLayoutEffect(() => {
     if (!source || !paneRef.current) {
       setFrame(null);
+      setImageVisible(false);
       return;
     }
     setFrame(null);
+    setImageVisible(false);
     const compute = () => {
       const el = paneRef.current;
       if (!el) return;
@@ -71,10 +75,12 @@ export function EditorRoot() {
       setFrame(iAR > cAR ? { w: cw, h: cw / iAR } : { w: ch * iAR, h: ch });
     };
     const raf1 = requestAnimationFrame(() => requestAnimationFrame(compute));
+    const reveal = setTimeout(() => setImageVisible(true), 760);
     const ro = new ResizeObserver(compute);
     ro.observe(paneRef.current);
     return () => {
       cancelAnimationFrame(raf1);
+      clearTimeout(reveal);
       ro.disconnect();
     };
   }, [source]);
@@ -209,7 +215,7 @@ export function EditorRoot() {
         className="flex min-h-[480px] min-w-0 items-center justify-center md:sticky md:top-4 md:h-[calc(100vh-5rem)] md:max-h-[calc(100vh-5rem)]"
       >
         <div
-          className="relative flex flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elev-1)] transition-[width,height] duration-500 ease-out"
+          className="relative flex flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elev-1)] transition-[width,height] duration-700 ease-out"
           style={
             frame
               ? { width: frame.w, height: frame.h }
@@ -223,7 +229,12 @@ export function EditorRoot() {
             </div>
           )}
           {hasImage ? (
-            <>
+            <div
+              className={cn(
+                "absolute inset-0 transition-opacity duration-500 ease-out",
+                imageVisible ? "opacity-100" : "opacity-0",
+              )}
+            >
               <Canvas
                 ref={canvasRef}
                 source={source}
@@ -242,7 +253,7 @@ export function EditorRoot() {
                   </span>
                 )}
               </div>
-            </>
+            </div>
           ) : (
             <div className="absolute inset-6">
               <DropZone onImage={handleImage} />
