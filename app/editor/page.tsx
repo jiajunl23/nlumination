@@ -9,11 +9,11 @@ export default function EditorPage() {
   return (
     <div className="flex flex-1 flex-col">
       <header className="flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-bg-elev-1)] px-6 py-3">
-        <Link href="/" className="group flex items-baseline font-medium tracking-tight">
-          <span className="bg-gradient-to-br from-[var(--color-accent)] via-[var(--color-accent-glow)] to-[var(--color-magenta)] bg-clip-text text-lg font-semibold leading-none text-transparent transition group-hover:opacity-90">
-            N
-          </span>
-          <span className="text-sm leading-none text-[var(--color-fg)]">lumination</span>
+        <Link
+          href="/"
+          className="bg-gradient-to-r from-[var(--color-accent)] via-[var(--color-accent-glow)] to-[var(--color-magenta)] bg-clip-text text-base font-semibold leading-none tracking-tight text-transparent transition hover:opacity-90"
+        >
+          NLumination
         </Link>
         <div className="flex items-center gap-3">
           <Show when="signed-in">
