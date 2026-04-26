@@ -198,13 +198,15 @@ export function EditorRoot() {
   };
 
   return (
-    <div className="grid h-full flex-1 grid-cols-1 gap-4 p-4 md:grid-cols-[minmax(0,1fr)_380px]">
+    <div className="grid min-h-[calc(100vh-5rem)] flex-1 grid-cols-1 gap-4 p-4 md:grid-cols-[minmax(0,1fr)_380px] md:items-start">
       {/* Canvas pane: outer always fills the grid column; inner frame
           animates width/height to contain-fit the photo so the border
-          hugs the image (no letterbox bands once settled). */}
+          hugs the image (no letterbox bands once settled). On md+ it
+          stays sticky to the viewport so a tall right column never
+          pushes the image above the fold. */}
       <div
         ref={paneRef}
-        className="flex min-h-[480px] min-w-0 items-center justify-center"
+        className="flex min-h-[480px] min-w-0 items-center justify-center md:sticky md:top-4 md:h-[calc(100vh-5rem)] md:max-h-[calc(100vh-5rem)]"
       >
         <div
           className="relative flex flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elev-1)] transition-[width,height] duration-500 ease-out"
@@ -250,7 +252,7 @@ export function EditorRoot() {
       </div>
 
       {/* Right column: chat panel + collapsible sliders + save */}
-      <aside className="flex min-h-0 flex-col gap-3">
+      <aside className="flex flex-col gap-3">
         <ChatPanel
           params={params}
           onParams={setParams}
@@ -261,7 +263,7 @@ export function EditorRoot() {
         {/* Collapsible Adjustments */}
         <section
           className={cn(
-            "flex shrink-0 flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elev-1)] transition-[max-height] duration-200 [will-change:max-height]",
+            "flex shrink-0 flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elev-1)] transition-[max-height] duration-500 ease-out [will-change:max-height]",
             adjustmentsOpen ? "max-h-[55vh]" : "max-h-12",
           )}
         >

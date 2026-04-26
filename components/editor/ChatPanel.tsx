@@ -46,7 +46,7 @@ export function ChatPanel({ params, onParams, layoutNonce, className }: Props) {
   }, [messages.length]);
 
   // When the surrounding layout shifts (e.g. Adjustments expands), wait for
-  // the max-height transition (~200ms) and re-pin to the bottom so the
+  // the max-height transition (~500ms) and re-pin to the bottom so the
   // latest message doesn't get hidden behind the newly-grown panel.
   useEffect(() => {
     if (layoutNonce === undefined) return;
@@ -55,7 +55,7 @@ export function ChatPanel({ params, onParams, layoutNonce, className }: Props) {
         top: listRef.current.scrollHeight,
         behavior: "smooth",
       });
-    }, 220);
+    }, 520);
     return () => clearTimeout(t);
   }, [layoutNonce]);
 
