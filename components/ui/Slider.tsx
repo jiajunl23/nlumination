@@ -68,14 +68,14 @@ export function Slider({
       >
         <label
           htmlFor={id}
-          className="text-[--color-fg-muted] transition group-hover/slider:text-[--color-fg]"
+          className="text-[var(--color-fg-muted)] transition group-hover/slider:text-[var(--color-fg)]"
         >
           {label}
         </label>
         <button
           type="button"
           onDoubleClick={() => defaultValue !== undefined && onChange(defaultValue)}
-          className="font-mono tabular-nums text-[--color-fg] transition hover:text-[--color-accent]"
+          className="font-mono tabular-nums text-[var(--color-fg)] transition hover:text-[var(--color-accent)]"
           title="Double-click to reset"
         >
           {display}
@@ -84,10 +84,10 @@ export function Slider({
 
       <div className="relative h-[18px]">
         {/* Track */}
-        <div className="absolute inset-x-0 top-1/2 h-[2px] -translate-y-1/2 rounded-full bg-[--color-border-strong]" />
+        <div className="absolute inset-x-0 top-1/2 h-[2px] -translate-y-1/2 rounded-full bg-[var(--color-border-strong)]" />
         {/* Fill */}
         <div
-          className="absolute top-1/2 h-[2px] -translate-y-1/2 rounded-full bg-[--color-accent] transition-[background] group-hover/slider:bg-[--color-accent-glow]"
+          className="absolute top-1/2 h-[2px] -translate-y-1/2 rounded-full bg-[var(--color-accent)] transition-[background] group-hover/slider:bg-[var(--color-accent-glow)]"
           style={{ left: `${fillLeft}%`, width: `${fillWidth}%` }}
         />
         {/* Native range input on top — invisible track but usable thumb */}

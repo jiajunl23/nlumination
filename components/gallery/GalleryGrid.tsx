@@ -34,13 +34,13 @@ export function GalleryGrid({ initial }: { initial: Photo[] }) {
 
   if (photos.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[--color-border-strong] bg-[--color-bg-elev-1] py-24 text-center">
-        <div className="text-sm text-[--color-fg-muted]">
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--color-border-strong)] bg-[var(--color-bg-elev-1)] py-24 text-center">
+        <div className="text-sm text-[var(--color-fg-muted)]">
           No saved edits yet.
         </div>
         <Link
           href="/editor"
-          className="mt-4 inline-flex items-center gap-2 rounded-full bg-[--color-fg] px-4 py-2 text-xs font-medium text-[--color-bg] transition hover:opacity-90"
+          className="mt-4 inline-flex items-center gap-2 rounded-full bg-[var(--color-fg)] px-4 py-2 text-xs font-medium text-[var(--color-bg)] transition hover:opacity-90"
         >
           <Plus className="h-3.5 w-3.5" />
           Open the editor

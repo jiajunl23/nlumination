@@ -80,7 +80,7 @@ export function ToneCurveEditor({ points, onChange }: Props) {
   };
 
   return (
-    <div className="rounded-lg border border-[--color-border] bg-[--color-bg-elev-2]/60 p-2">
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elev-2)]/60 p-2">
       <svg
         ref={svgRef}
         viewBox={`0 0 ${SIZE} ${SIZE}`}
@@ -163,7 +163,7 @@ export function ToneCurveEditor({ points, onChange }: Props) {
           );
         })}
       </svg>
-      <div className="mt-1 flex justify-between px-1 text-[10px] text-[--color-fg-dim]">
+      <div className="mt-1 flex justify-between px-1 text-[10px] text-[var(--color-fg-dim)]">
         <span>Double-click curve to add · point to remove</span>
       </div>
     </div>

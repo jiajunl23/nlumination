@@ -54,9 +54,9 @@ function ToneRow({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-xs">
-        <span className="text-[--color-fg-muted]">{label}</span>
+        <span className="text-[var(--color-fg-muted)]">{label}</span>
         <div
-          className="h-3 w-3 rounded-full ring-1 ring-[--color-border-strong]"
+          className="h-3 w-3 rounded-full ring-1 ring-[var(--color-border-strong)]"
           style={{ backgroundColor: `hsl(${hue} ${sat}% 50%)` }}
         />
       </div>

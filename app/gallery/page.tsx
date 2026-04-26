@@ -43,15 +43,15 @@ export default async function GalleryPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <header className="flex items-center justify-between border-b border-[--color-border] bg-[--color-bg-elev-1] px-6 py-3">
+      <header className="flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-bg-elev-1)] px-6 py-3">
         <Link href="/" className="flex items-center gap-2 text-sm font-medium tracking-tight">
-          <span className="inline-block h-2 w-2 rounded-full bg-[--color-accent] shadow-[0_0_10px_var(--color-accent-glow)]" />
-          N<span className="text-[--color-accent]">L</span>umination
+          <span className="inline-block h-2 w-2 rounded-full bg-[var(--color-accent)] shadow-[0_0_10px_var(--color-accent-glow)]" />
+          N<span className="text-[var(--color-accent)]">L</span>umination
         </Link>
         <div className="flex items-center gap-3">
           <Link
             href="/editor"
-            className="text-xs text-[--color-fg-muted] transition hover:text-[--color-fg]"
+            className="text-xs text-[var(--color-fg-muted)] transition hover:text-[var(--color-fg)]"
           >
             Editor
           </Link>
@@ -61,7 +61,7 @@ export default async function GalleryPage() {
 
       <main className="mx-auto w-full max-w-6xl flex-1 p-6">
         <h1 className="mb-1 text-2xl font-medium tracking-tight">Gallery</h1>
-        <p className="mb-6 text-sm text-[--color-fg-muted]">
+        <p className="mb-6 text-sm text-[var(--color-fg-muted)]">
           Your saved edits. Tap any card to keep refining it.
         </p>
         <GalleryGrid initial={photoList} />

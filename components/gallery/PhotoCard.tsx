@@ -64,7 +64,7 @@ export function PhotoCard({
   const aspect = width / Math.max(1, height);
 
   return (
-    <div className="group relative overflow-hidden rounded-2xl border border-[--color-border] bg-[--color-bg-elev-2] transition hover:border-[--color-border-strong]">
+    <div className="group relative overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elev-2)] transition hover:border-[var(--color-border-strong)]">
       <Link
         href={`/editor?photoId=${id}`}
         className="block"
@@ -77,11 +77,11 @@ export function PhotoCard({
         />
       </Link>
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/70 to-transparent px-3 py-2 text-xs">
-        <span className="truncate text-[--color-fg-muted]">{filename}</span>
+        <span className="truncate text-[var(--color-fg-muted)]">{filename}</span>
         {onDelete && (
           <button
             type="button"
-            className="pointer-events-auto rounded-full p-1 text-[--color-fg-muted] opacity-0 transition group-hover:opacity-100 hover:text-red-300"
+            className="pointer-events-auto rounded-full p-1 text-[var(--color-fg-muted)] opacity-0 transition group-hover:opacity-100 hover:text-red-300"
             onClick={(e) => {
               e.preventDefault();
               if (confirm(`Delete "${filename}"?`)) onDelete(id);

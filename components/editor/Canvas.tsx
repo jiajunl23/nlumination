@@ -37,10 +37,8 @@ export function Canvas({ ref, source, params, className, onError }: Props) {
   }));
 
   const schedule = () => {
-    console.log("[debug] schedule called", { pending: rafRef.current != null });
     if (rafRef.current != null) return;
     rafRef.current = requestAnimationFrame(() => {
-      console.log("[debug] rAF fired");
       rafRef.current = null;
       pipelineRef.current?.render();
     });
@@ -56,9 +54,18 @@ export function Canvas({ ref, source, params, className, onError }: Props) {
       return;
     }
 
+    // ResizeObserver fires on every animation frame while the parent
+    // frame transitions; collapse those into one fitCanvas() per rAF
+    // so we don't reallocate the intermediate FBO ~60×/sec.
+    let resizePending = false;
     const ro = new ResizeObserver(() => {
-      pipelineRef.current?.fitCanvas();
-      schedule();
+      if (resizePending) return;
+      resizePending = true;
+      requestAnimationFrame(() => {
+        resizePending = false;
+        pipelineRef.current?.fitCanvas();
+        schedule();
+      });
     });
     ro.observe(canvasRef.current);
 

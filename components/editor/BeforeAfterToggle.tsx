@@ -25,8 +25,8 @@ export function BeforeAfterToggle({ active, onChange, className }: Props) {
         if (e.key === "b" || e.key === "B") onChange(!active);
       }}
       className={cn(
-        "flex items-center gap-1.5 rounded-full border border-[--color-border] bg-[--color-bg-elev-2]/80 px-3 py-1.5 text-xs text-[--color-fg-muted] backdrop-blur transition hover:border-[--color-border-strong] hover:text-[--color-fg]",
-        active && "border-[--color-accent] text-[--color-fg] ring-accent-glow",
+        "flex items-center gap-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-elev-2)]/80 px-3 py-1.5 text-xs text-[var(--color-fg-muted)] backdrop-blur transition hover:border-[var(--color-border-strong)] hover:text-[var(--color-fg)]",
+        active && "border-[var(--color-accent)] text-[var(--color-fg)] ring-accent-glow",
         className,
       )}
       title="Hold to view original (B to toggle)"

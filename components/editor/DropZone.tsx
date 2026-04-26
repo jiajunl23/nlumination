@@ -37,8 +37,8 @@ export function DropZone({ onImage, className }: Props) {
   return (
     <label
       className={cn(
-        "group relative flex h-full w-full cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[--color-border-strong] bg-[--color-bg-elev-1] text-center transition",
-        over && "border-[--color-accent] bg-[--color-bg-elev-2] ring-accent-glow",
+        "group relative flex h-full w-full cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[var(--color-border-strong)] bg-[var(--color-bg-elev-1)] text-center transition",
+        over && "border-[var(--color-accent)] bg-[var(--color-bg-elev-2)] ring-accent-glow",
         className,
       )}
       onDragOver={(e) => {
@@ -63,14 +63,14 @@ export function DropZone({ onImage, className }: Props) {
           if (file) void accept(file);
         }}
       />
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[--color-bg-elev-3] text-[--color-fg-muted] transition group-hover:bg-[--color-bg-elev-2] group-hover:text-[--color-fg]">
-        {over ? <Upload className="h-5 w-5 text-[--color-accent]" /> : <ImagePlus className="h-5 w-5" />}
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-bg-elev-3)] text-[var(--color-fg-muted)] transition group-hover:bg-[var(--color-bg-elev-2)] group-hover:text-[var(--color-fg)]">
+        {over ? <Upload className="h-5 w-5 text-[var(--color-accent)]" /> : <ImagePlus className="h-5 w-5" />}
       </div>
       <div>
-        <div className="text-sm font-medium text-[--color-fg]">
+        <div className="text-sm font-medium text-[var(--color-fg)]">
           Drop a photo, or click to choose
         </div>
-        <div className="mt-1 text-xs text-[--color-fg-muted]">
+        <div className="mt-1 text-xs text-[var(--color-fg-muted)]">
           JPG, PNG, or WebP — full resolution stays on your device.
         </div>
       </div>

@@ -24,8 +24,11 @@
   color-scheme: dark;
 }
 
-html, body {
+html {
   background: var(--color-bg);
+}
+body {
+  background: transparent;
   color: var(--color-fg);
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -38,6 +41,56 @@ html, body {
 }
 
 @layer utilities {
+  @keyframes wave-a {
+    0%, 100% { transform: translate3d(0, 0, 0); }
+    50% { transform: translate3d(8vw, -6vh, 0); }
+  }
+  @keyframes wave-b {
+    0%, 100% { transform: translate3d(0, 0, 0); }
+    50% { transform: translate3d(-10vw, 5vh, 0); }
+  }
+  @keyframes wave-c {
+    0%, 100% { transform: translate3d(0, 0, 0); }
+    50% { transform: translate3d(6vw, 8vh, 0); }
+  }
+
+  .bg-waves {
+    position: fixed;
+    inset: -20vmax;
+    z-index: -10;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .bg-waves > span {
+    position: absolute;
+    inset: 0;
+    filter: blur(80px);
+    opacity: 0.25;
+    will-change: transform;
+  }
+  .bg-waves > span:nth-child(1) {
+    background: radial-gradient(40vmax 40vmax at 25% 30%,
+      color-mix(in oklab, var(--color-accent) 55%, transparent),
+      transparent 60%);
+    animation: wave-a 56s ease-in-out infinite;
+  }
+  .bg-waves > span:nth-child(2) {
+    background: radial-gradient(40vmax 40vmax at 75% 70%,
+      color-mix(in oklab, var(--color-magenta) 50%, transparent),
+      transparent 60%);
+    animation: wave-b 64s ease-in-out infinite;
+  }
+  .bg-waves > span:nth-child(3) {
+    background: radial-gradient(40vmax 40vmax at 80% 20%,
+      color-mix(in oklab, var(--color-cyan) 40%, transparent),
+      transparent 60%);
+    animation: wave-c 52s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bg-waves > span { animation: none; }
+  }
+
   .glass {
     background: color-mix(in oklab, var(--color-bg-elev-1) 80%, transparent);
     backdrop-filter: blur(16px) saturate(180%);

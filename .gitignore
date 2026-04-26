@@ -43,4 +43,5 @@ next-env.d.ts
 # local test fixtures and tooling artifacts
 test_image.png
 editor-*.png
+landing-*.png
 .playwright-mcp/

@@ -42,8 +42,8 @@ export function HSLPanel({ value, onChange }: Props) {
               onClick={() => setActive(b)}
               title={BAND_LABELS[b]}
               className={cn(
-                "relative h-6 flex-1 rounded-md ring-1 ring-inset ring-[--color-border] transition",
-                selected && "ring-2 ring-[--color-fg]",
+                "relative h-6 flex-1 rounded-md ring-1 ring-inset ring-[var(--color-border)] transition",
+                selected && "ring-2 ring-[var(--color-fg)]",
               )}
               style={{
                 backgroundColor: `hsl(${HUE_BAND_CENTERS[b]} 80% 55%)`,

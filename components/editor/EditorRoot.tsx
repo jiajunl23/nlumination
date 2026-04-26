@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
@@ -26,7 +26,9 @@ export function EditorRoot() {
   const { isSignedIn } = useAuth();
 
   const canvasRef = useRef<CanvasHandle | null>(null);
+  const paneRef = useRef<HTMLDivElement | null>(null);
   const [source, setSource] = useState<ImageBitmap | null>(null);
+  const [frame, setFrame] = useState<{ w: number; h: number } | null>(null);
   const [params, setParams] = useState<GradingParams>(DEFAULT_PARAMS);
   const [hasImage, setHasImage] = useState(false);
   const [filename, setFilename] = useState<string | null>(null);
@@ -48,6 +50,34 @@ export function EditorRoot() {
     setFilename(file.name);
     setPhotoId(null);
   }, []);
+
+  // Frame-fit animation: paint at 100%/100% for one frame so the user sees the
+  // letterboxed photo, then transition the inner frame down to the image's
+  // contain-fit pixel size (CSS animates width/height for 500ms).
+  useLayoutEffect(() => {
+    if (!source || !paneRef.current) {
+      setFrame(null);
+      return;
+    }
+    setFrame(null);
+    const compute = () => {
+      const el = paneRef.current;
+      if (!el) return;
+      const cw = el.clientWidth;
+      const ch = el.clientHeight;
+      if (!cw || !ch) return;
+      const iAR = source.width / source.height;
+      const cAR = cw / ch;
+      setFrame(iAR > cAR ? { w: cw, h: cw / iAR } : { w: ch * iAR, h: ch });
+    };
+    const raf1 = requestAnimationFrame(() => requestAnimationFrame(compute));
+    const ro = new ResizeObserver(compute);
+    ro.observe(paneRef.current);
+    return () => {
+      cancelAnimationFrame(raf1);
+      ro.disconnect();
+    };
+  }, [source]);
 
   // Hydrate from a saved photo (e.g. /editor?photoId=xxx).
   useEffect(() => {
@@ -169,11 +199,23 @@ export function EditorRoot() {
 
   return (
     <div className="grid h-full flex-1 grid-cols-1 gap-4 p-4 md:grid-cols-[minmax(0,1fr)_380px]">
-      {/* Canvas pane */}
-      <div className="flex min-h-[480px] min-w-0 flex-col">
-        <div className="relative flex flex-1 flex-col overflow-hidden rounded-2xl border border-[--color-border] bg-[--color-bg-elev-1]">
+      {/* Canvas pane: outer always fills the grid column; inner frame
+          animates width/height to contain-fit the photo so the border
+          hugs the image (no letterbox bands once settled). */}
+      <div
+        ref={paneRef}
+        className="flex min-h-[480px] min-w-0 items-center justify-center"
+      >
+        <div
+          className="relative flex flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elev-1)] transition-[width,height] duration-500 ease-out"
+          style={
+            frame
+              ? { width: frame.w, height: frame.h }
+              : { width: "100%", height: "100%" }
+          }
+        >
           {loading && (
-            <div className="absolute inset-0 z-20 flex items-center justify-center bg-[--color-bg]/70 text-sm text-[--color-fg-muted]">
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-[var(--color-bg)]/70 text-sm text-[var(--color-fg-muted)]">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Loading photo…
             </div>
@@ -193,7 +235,7 @@ export function EditorRoot() {
                   onChange={setShowOriginal}
                 />
                 {filename && (
-                  <span className="rounded-full bg-[--color-bg]/60 px-3 py-1 text-xs text-[--color-fg-muted] backdrop-blur">
+                  <span className="rounded-full bg-[var(--color-bg)]/60 px-3 py-1 text-xs text-[var(--color-fg-muted)] backdrop-blur">
                     {filename}
                   </span>
                 )}
@@ -212,28 +254,29 @@ export function EditorRoot() {
         <ChatPanel
           params={params}
           onParams={setParams}
+          layoutNonce={adjustmentsOpen ? 1 : 0}
           className="min-h-[280px] flex-1"
         />
 
         {/* Collapsible Adjustments */}
         <section
           className={cn(
-            "flex shrink-0 flex-col overflow-hidden rounded-2xl border border-[--color-border] bg-[--color-bg-elev-1] transition-[max-height] duration-200",
+            "flex shrink-0 flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elev-1)] transition-[max-height] duration-200 [will-change:max-height]",
             adjustmentsOpen ? "max-h-[55vh]" : "max-h-12",
           )}
         >
-          <header className="flex items-center justify-between border-b border-[--color-border]/60 px-4 py-3">
+          <header className="flex items-center justify-between border-b border-[var(--color-border)]/60 px-4 py-3">
             <button
               type="button"
               onClick={() => setAdjustmentsOpen((v) => !v)}
-              className="flex flex-1 items-center gap-2 text-left text-sm font-medium text-[--color-fg]"
+              className="flex flex-1 items-center gap-2 text-left text-sm font-medium text-[var(--color-fg)]"
               aria-expanded={adjustmentsOpen}
             >
-              <Sliders className="h-4 w-4 text-[--color-accent]" />
+              <Sliders className="h-4 w-4 text-[var(--color-accent)]" />
               Adjustments
               <ChevronDown
                 className={cn(
-                  "ml-1 h-4 w-4 text-[--color-fg-muted] transition-transform",
+                  "ml-1 h-4 w-4 text-[var(--color-fg-muted)] transition-transform",
                   adjustmentsOpen ? "rotate-0" : "-rotate-90",
                 )}
               />
@@ -242,7 +285,7 @@ export function EditorRoot() {
               disabled={isPristine}
               onClick={() => setParams(DEFAULT_PARAMS)}
               className={cn(
-                "flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[--color-fg-muted] transition hover:text-[--color-fg]",
+                "flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-fg-muted)] transition hover:text-[var(--color-fg)]",
                 isPristine && "pointer-events-none opacity-30",
               )}
             >
@@ -258,12 +301,12 @@ export function EditorRoot() {
         </section>
 
         {/* Save / export */}
-        <footer className="flex shrink-0 flex-col gap-2 rounded-2xl border border-[--color-border] bg-[--color-bg-elev-1] px-4 py-3">
+        <footer className="flex shrink-0 flex-col gap-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elev-1)] px-4 py-3">
           {isSignedIn && (
             <button
               disabled={!hasImage || saving}
               onClick={onSave}
-              className="flex items-center justify-center gap-2 rounded-xl border border-[--color-border-strong] bg-[--color-bg-elev-2] px-4 py-2 text-sm font-medium text-[--color-fg] transition disabled:cursor-not-allowed disabled:opacity-40 hover:bg-[--color-bg-elev-3]"
+              className="flex items-center justify-center gap-2 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-bg-elev-2)] px-4 py-2 text-sm font-medium text-[var(--color-fg)] transition disabled:cursor-not-allowed disabled:opacity-40 hover:bg-[var(--color-bg-elev-3)]"
             >
               {saving ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -276,7 +319,7 @@ export function EditorRoot() {
           <button
             disabled={!hasImage || exporting}
             onClick={onExport}
-            className="flex items-center justify-center gap-2 rounded-xl bg-[--color-fg] px-4 py-2 text-sm font-medium text-[--color-bg] transition disabled:cursor-not-allowed disabled:opacity-40 hover:opacity-90"
+            className="flex items-center justify-center gap-2 rounded-xl bg-[var(--color-fg)] px-4 py-2 text-sm font-medium text-[var(--color-bg)] transition disabled:cursor-not-allowed disabled:opacity-40 hover:opacity-90"
           >
             {exporting ? (
               <Loader2 className="h-4 w-4 animate-spin" />
