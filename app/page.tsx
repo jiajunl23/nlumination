@@ -7,11 +7,11 @@ export default function LandingPage() {
   return (
     <div className="relative flex flex-1 flex-col">
       <header className="flex items-center justify-between px-8 py-6">
-        <Link href="/" className="flex items-center gap-2 font-medium tracking-tight">
-          <span className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--color-accent)] shadow-[0_0_12px_var(--color-accent-glow)]" />
-          <span className="text-lg">
-            N<span className="text-[var(--color-accent)]">L</span>umination
+        <Link href="/" className="group flex items-baseline font-medium tracking-tight">
+          <span className="bg-gradient-to-br from-[var(--color-accent)] via-[var(--color-accent-glow)] to-[var(--color-magenta)] bg-clip-text text-2xl font-semibold leading-none text-transparent transition group-hover:opacity-90">
+            N
           </span>
+          <span className="text-lg leading-none text-[var(--color-fg)]">lumination</span>
         </Link>
         <nav className="flex items-center gap-3 text-sm">
           <Show when="signed-out">
