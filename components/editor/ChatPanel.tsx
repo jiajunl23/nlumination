@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Sparkles, Send } from "lucide-react";
-import { CHIPS } from "@/lib/nlp/chips";
 import { parsePrompt } from "@/lib/nlp/parser";
 import { suggestForUnmatched } from "@/lib/nlp/fallback";
 import { suggestionFor, summarizeApplied } from "@/lib/nlp/summary";
@@ -10,15 +9,56 @@ import type { GradingParams } from "@/lib/grading/params";
 import type { ImageStats } from "@/lib/grading/imageStats";
 import { cn } from "@/lib/utils";
 
+type ExampleChip = { phrase: string; description: string };
+
 type Message =
   | { id: string; role: "user"; text: string }
   | {
       id: string;
       role: "assistant";
-      applied: string[];
+      text?: string;
+      applied?: string[];
       hint?: string;
-      tryChips?: { phrase: string; description: string }[];
+      tryChips?: ExampleChip[];
     };
+
+const STARTER_EXAMPLES: ExampleChip[] = [
+  { phrase: "cinematic", description: "cinematic teal-orange" },
+  { phrase: "moody, blue shadows", description: "moody + blue shadows" },
+  { phrase: "warmer", description: "warmer" },
+  { phrase: "bluer sky", description: "deepen sky" },
+  { phrase: "bright and airy", description: "bright & airy" },
+];
+
+const ALL_EXAMPLES: ExampleChip[] = [
+  // looks
+  { phrase: "cinematic", description: "cinematic teal-orange" },
+  { phrase: "filmic", description: "film emulation" },
+  { phrase: "vintage", description: "vintage fade" },
+  { phrase: "moody, blue shadows", description: "moody + blue shadows" },
+  { phrase: "golden hour, warmer", description: "golden hour" },
+  { phrase: "cyberpunk", description: "cyberpunk" },
+  // color
+  { phrase: "warmer", description: "warmer" },
+  { phrase: "cooler", description: "cooler" },
+  { phrase: "bluer sky", description: "deepen sky" },
+  { phrase: "greener foliage", description: "deepen greens" },
+  // tone
+  { phrase: "more contrast, punchier", description: "punchier" },
+  { phrase: "less contrast, softer", description: "soft mood" },
+  // compound — shows off the parser
+  { phrase: "subtly warmer and a bit moody", description: "compound prompt" },
+  { phrase: "protect highlights, lift shadows", description: "tame the dynamic range" },
+];
+
+const EXAMPLES_QUERY_RE = /^\s*(examples?|more|more examples?|show examples?|help|ideas?|inspire me)\s*$/i;
+
+const WELCOME: Message = {
+  id: "welcome",
+  role: "assistant",
+  text: 'Try one of these — or type your own. (Type "examples" any time for more ideas.)',
+  tryChips: STARTER_EXAMPLES,
+};
 
 type Props = {
   params: GradingParams;
@@ -40,7 +80,7 @@ type Props = {
 
 export function ChatPanel({ params, onParams, stats, layoutNonce, className }: Props) {
   const [value, setValue] = useState("");
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>([WELCOME]);
   const listRef = useRef<HTMLDivElement>(null);
   const paramsRef = useRef(params);
   paramsRef.current = params;
@@ -71,6 +111,23 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
   const submit = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
+
+    if (EXAMPLES_QUERY_RE.test(trimmed)) {
+      const ts = Date.now();
+      setMessages((m) => [
+        ...m,
+        { id: `u-${ts}`, role: "user", text: trimmed },
+        {
+          id: `a-${ts}`,
+          role: "assistant",
+          text: "Here are more ideas — click any to try, or remix them with your own words:",
+          tryChips: ALL_EXAMPLES,
+        },
+      ]);
+      setValue("");
+      return;
+    }
+
     const before = paramsRef.current;
     const result = parsePrompt(trimmed, before, statsRef.current);
     onParams(result.params);
@@ -116,17 +173,6 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
         className="flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm scrollbar-thin"
         style={{ overflowAnchor: "auto" }}
       >
-        {messages.length === 0 && (
-          <div className="rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-bg-elev-2)]/40 p-3 text-xs text-[var(--color-fg-muted)]">
-            Type a prompt like{" "}
-            <span className="text-[var(--color-fg)]">
-              &ldquo;moody, blue shadows, protect highlights&rdquo;
-            </span>{" "}
-            and I&apos;ll move the right sliders for you. You can always fine-tune
-            below.
-          </div>
-        )}
-
         {messages.map((m) =>
           m.role === "user" ? (
             <div key={m.id} className="flex justify-end">
@@ -136,17 +182,23 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
             </div>
           ) : (
             <div key={m.id} className="max-w-[95%] space-y-1.5">
-              {m.applied.length > 0 ? (
+              {m.text ? (
+                <div className="text-[var(--color-fg-muted)]">{m.text}</div>
+              ) : m.applied && m.applied.length > 0 ? (
                 <div className="text-[var(--color-fg-muted)]">
                   <span className="text-[var(--color-fg-dim)]">applied:</span>{" "}
                   <span className="text-[var(--color-fg)]">
                     {m.applied.join(", ")}
                   </span>
                 </div>
+              ) : m.tryChips && m.tryChips.length > 0 ? (
+                <div className="text-[var(--color-fg-muted)]">
+                  Hmm, I didn&apos;t catch that. Did you mean:
+                </div>
               ) : (
                 <div className="text-[var(--color-fg-muted)]">
-                  I didn&apos;t recognise anything in that — try one of the chips
-                  below or rephrase.
+                  I didn&apos;t catch that one — rephrase, or type{" "}
+                  <span className="text-[var(--color-fg)]">examples</span> for ideas.
                 </div>
               )}
               {m.hint && (
@@ -155,24 +207,31 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
                 </div>
               )}
               {m.tryChips && m.tryChips.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {m.tryChips.map((s, i) => (
-                    <button
-                      key={i}
-                      onClick={() => submit(s.phrase)}
-                      className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-elev-2)] px-2 py-0.5 text-[11px] text-[var(--color-fg)] transition hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-elev-3)]"
-                    >
-                      {s.phrase}
-                    </button>
-                  ))}
-                </div>
+                <>
+                  {!m.text && m.applied && m.applied.length > 0 && (
+                    <div className="text-xs text-[var(--color-fg-dim)]">
+                      did you also mean:
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {m.tryChips.map((s, i) => (
+                      <button
+                        key={i}
+                        onClick={() => submit(s.phrase)}
+                        className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-elev-2)] px-2 py-0.5 text-[11px] text-[var(--color-fg)] transition hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-elev-3)]"
+                      >
+                        {s.phrase}
+                      </button>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
           ),
         )}
       </div>
 
-      <div className="space-y-2 border-t border-[var(--color-border)]/60 p-3">
+      <div className="border-t border-[var(--color-border)]/60 p-3">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -184,7 +243,7 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
             type="text"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            placeholder='e.g. "moody, blue shadows, protect highlights"'
+            placeholder='e.g. "moody, blue shadows" — or type "examples"'
             className="min-w-0 flex-1 bg-transparent text-sm text-[var(--color-fg)] placeholder:text-[var(--color-fg-dim)] focus:outline-none"
           />
           <button
@@ -196,18 +255,6 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
             <Send className="h-3.5 w-3.5" />
           </button>
         </form>
-
-        <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 scrollbar-thin">
-          {CHIPS.map((chip) => (
-            <button
-              key={chip.label}
-              onClick={() => submit(chip.prompt)}
-              className="shrink-0 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-elev-1)] px-3 py-1 text-xs text-[var(--color-fg-muted)] transition hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-elev-2)] hover:text-[var(--color-fg)]"
-            >
-              {chip.label}
-            </button>
-          ))}
-        </div>
       </div>
     </div>
   );
