@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { ImagePlus, Upload } from "lucide-react";
+import { ImagePlus, Sparkles, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -10,10 +10,13 @@ type Props = {
 };
 
 const ACCEPTED = ["image/jpeg", "image/png", "image/webp"];
+const SAMPLE_URL = "/sample.jpg";
+const SAMPLE_FILENAME = "sample.jpg";
 
 export function DropZone({ onImage, className }: Props) {
   const [over, setOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadingSample, setLoadingSample] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const accept = useCallback(
@@ -33,6 +36,24 @@ export function DropZone({ onImage, className }: Props) {
     },
     [onImage],
   );
+
+  const loadSample = useCallback(async () => {
+    setError(null);
+    setLoadingSample(true);
+    try {
+      const res = await fetch(SAMPLE_URL);
+      if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
+      const blob = await res.blob();
+      const file = new File([blob], SAMPLE_FILENAME, { type: blob.type || "image/jpeg" });
+      const bmp = await createImageBitmap(file);
+      onImage(bmp, file);
+    } catch (err) {
+      setError("Couldn't load the sample image.");
+      console.error(err);
+    } finally {
+      setLoadingSample(false);
+    }
+  }, [onImage]);
 
   return (
     <div
@@ -89,6 +110,18 @@ export function DropZone({ onImage, className }: Props) {
           JPG, PNG, or WebP — full resolution stays on your device.
         </div>
       </div>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          void loadSample();
+        }}
+        disabled={loadingSample}
+        className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-elev-2)]/60 px-3 py-1 text-xs text-[var(--color-fg-muted)] transition hover:border-[var(--color-accent)] hover:text-[var(--color-fg)] disabled:opacity-50"
+      >
+        <Sparkles className="h-3 w-3 text-[var(--color-accent)]" />
+        {loadingSample ? "Loading sample…" : "Or try our sample image"}
+      </button>
       {error && <div className="mt-2 text-xs text-red-400">{error}</div>}
     </div>
   );

@@ -17,9 +17,8 @@ export function SliderPanel({ params, onChange }: Props) {
     onChange({ ...params, [key]: val });
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex-1 overflow-y-auto px-4 scrollbar-thin">
-        <Section
+    <div className="px-4 py-1">
+      <Section
           title="Light"
           onReset={() =>
             onChange({
@@ -253,8 +252,7 @@ export function SliderPanel({ params, onChange }: Props) {
           />
         </Section>
 
-        <div className="h-6" />
-      </div>
+      <div className="h-6" />
     </div>
   );
 }

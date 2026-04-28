@@ -23,7 +23,7 @@ A deterministic, pure-TypeScript parser that walks user input left-to-right doin
 - **6 modifier classes** (`very`, `really`, `subtly`, `a bit`, `less`, `no`) with **13 phrases**, attaching forward / backward / either based on position rules.
 - **8 named look presets** (cinematic, film, vintage, bright & airy, moody, morning mist, cyberpunk, golden hour) that resolve to multi-slider param snapshots.
 - **13 quick-pick chips** in the prompt UI for instant "I don't know what to type" recovery.
-- **Fallback suggester** for unmatched runs — if the parser doesn't recognize "thunderstorm vibes", it proposes the closest known phrases.
+- **Smart fallback suggester** for unmatched runs — combines prefix/substring matches with character-level Levenshtein, filters out stop-words ("and", "the", "like", "make", etc.) and < 3-char tokens so connective fluff doesn't manufacture spurious "did you mean" noise, and dedupes by intent so users see three distinct ideas rather than three spellings of the same look. Threshold tightened from 0.7 → 0.55 after iteration.
 - Runs in **<1 ms** per prompt. No network call. Same input → same output, every time.
 
 ### 3. Image-aware adaptive parser (Friday)
@@ -42,6 +42,8 @@ The prompt isn't a single input box — it's a conversation.
 
 - User prompts render as chat bubbles. Every reply shows `applied: +0.40 EV, blue shadows, moody` derived from before/after diff plus the parser's understood-intents list.
 - Each reply also surfaces `→ if you want more <look>, slide <X> <direction>` — pulled from a curated lookup keyed by intent description, so users learn which slider to reach for next.
+- **Welcome message with starter examples** — the chat seeds with five clickable example prompts (cinematic, moody+blue shadows, warmer, bluer sky, bright and airy) so first-time users have an obvious starting point. Replaced the cramped chip strip that used to sit below the input.
+- **`examples` command** — typing "examples", "more", "help", "ideas", or "inspire me" replies with a curated set of 14 prompts spanning looks, color, tone, and compound forms ("subtly warmer and a bit moody", "protect highlights, lift shadows") so users can see what the parser is capable of when they get stuck.
 - Sliders moved into a collapsible "Adjustments" section *below* the chat, so the prompt is the primary control. Sliders are still always one click away.
 
 ### 5. Editor UX polish
@@ -93,15 +95,16 @@ A real list, in the order they bit us:
 
 | Surface | Count |
 |---|---|
-| Commits this week | 11 (incl. initial) |
+| Commits this week | 12 (incl. initial) |
 | Source files added | 60+ |
 | NL intents | 42 |
 | NL surface phrases | 101 |
 | NL modifier classes | 6 |
 | Named look presets | 8 |
-| Quick-pick chips | 13 |
+| In-chat examples | 5 starter / 14 on `examples` command |
 | GLSL shader files | 6 (vertex + grading + tonemap helpers) |
 | Adaptive scalers | 10 |
+| Stop-words filtered by suggester | 50+ |
 | API routes | 3 (`photos`, `edits`, `uploads`) |
 | Database tables | 3 (`users`, `photos`, `edits`) |
 | Public pages | 4 (`/`, `/editor`, `/gallery`, `/sign-{in,up}`) |
@@ -116,7 +119,8 @@ A real list, in the order they bit us:
 - A signed-in user can drop a photo, type plain English, fine-tune with sliders, save, and re-open from the gallery — all of it.
 - Pixels never leave the device unless the user explicitly clicks "Save to gallery" (which uploads to Cloudinary).
 - Visual identity is in place — gradient wordmark, waves background, themed auth, README with hero SVG.
-- The deterministic parser handles 42 intents × 6 modifiers compositionally and now adapts magnitudes to the photo content.
+- The deterministic parser handles 42 intents × 6 modifiers compositionally, adapts magnitudes to the photo content, and produces clean "did you mean" suggestions for typos and unknown phrases without noise.
+- First-time users land on a chat that already contains five tappable examples — no blank-canvas paralysis. Typing "examples" surfaces 14 more.
 - The codebase is on `main` at `github.com/jiajunl23/nlumination`, env vars staged for Vercel deploy.
 
 ## What's next (planned but not built)

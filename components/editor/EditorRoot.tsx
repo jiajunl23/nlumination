@@ -298,11 +298,11 @@ export function EditorRoot() {
         {/* Collapsible Adjustments */}
         <section
           className={cn(
-            "flex shrink-0 flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elev-1)] transition-[max-height] duration-500 ease-out [will-change:max-height]",
-            adjustmentsOpen ? "max-h-[55vh]" : "max-h-12",
+            "flex shrink-0 flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elev-1)] transition-[height] duration-500 ease-out [will-change:height]",
+            adjustmentsOpen ? "h-[55vh]" : "h-12",
           )}
         >
-          <header className="flex items-center justify-between border-b border-[var(--color-border)]/60 px-4 py-3">
+          <header className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)]/60 px-4 py-3">
             <button
               type="button"
               onClick={() => setAdjustmentsOpen((v) => !v)}
@@ -331,7 +331,7 @@ export function EditorRoot() {
             </button>
           </header>
           {adjustmentsOpen && (
-            <div className="min-h-0 flex-1 overflow-hidden">
+            <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
               <SliderPanel params={params} onChange={setParams} />
             </div>
           )}
