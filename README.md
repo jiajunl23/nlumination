@@ -67,11 +67,14 @@ Edits are stored as parameter deltas, not flattened pixels. Re-open any saved ed
 
 | Prompt | What moves |
 |---|---|
-| `cinematic teal & orange` | Split-tone shadows → teal, highlights → orange; subtle contrast bump |
-| `golden hour, soft` | WB warmer · clarity down · lift shadows · gentle S-curve |
-| `crush the blacks, keep skin warm` | Black point down · HSL orange luminance preserved |
-| `desaturate everything except the red dress` | Global saturation down · HSL red saturation up |
-| `vintage film, faded blacks, warm` | Tone-curve lift · WB warm · slight magenta in shadows |
+| `cinematic` | Split-tone shadows → teal, highlights → orange; subtle contrast bump |
+| `moody, blue shadows` | Exposure down · contrast up · split-tone shadow hue → blue |
+| `subtly warmer and a bit moody` | Warm at 0.45× strength + moody preset |
+| `protect highlights, lift shadows` | Highlights pulled down (more if clipping) · shadows opened |
+| `golden hour, warmer` | Sunset-glow HSL boost · WB warmer · stacked compositionally |
+| `bluer sky` | Blue HSL saturation up + luminance down |
+
+Type **examples** in the chat at any time to surface 14 more curated prompts including compound forms.
 
 <br/>
 
@@ -84,10 +87,11 @@ Edits are stored as parameter deltas, not flattened pixels. Re-open any saved ed
                     └──────────────┘     └──────────────┘     └──────────────┘
 ```
 
-1. **Parse.** A compositional intent parser walks the sentence, matches against a catalog of moods, modifiers, and color targets, and emits structured deltas. Pure TS, runs in &lt; 1 ms.
-2. **Compose.** Deltas merge into a single `GradingParams` snapshot. The UI sliders reflect this snapshot, so anything the prompt did is editable by hand.
-3. **Render.** A two-pass WebGL2 pipeline applies WB → exposure → tone → HSL → curves → split-tone → vignette → optional 3D LUT, then letterboxes to canvas.
-4. **Save.** Saved edits are stored as parameter snapshots in Postgres. The JPEG export is generated on-demand from the same pipeline.
+1. **Parse.** A compositional intent parser walks the sentence, matches 42 intents (101 surface forms) and 6 modifier classes, and emits structured deltas. Pure TS, runs in &lt; 1 ms.
+2. **Adapt.** A 256-px CPU pass on upload (~5 ms) computes mean luminance, std, mean RGB, and 5/95th percentiles. Each intent declares an adaptive scaler so prompt magnitudes scale to the photo: "brighten" is gentle on bright photos and strong on dark ones; "protect highlights" is full-strength when there's clipping and near-zero when there isn't.
+3. **Compose.** Deltas merge into a single `GradingParams` snapshot. The UI sliders reflect this snapshot, so anything the prompt did is editable by hand.
+4. **Render.** A two-pass WebGL2 pipeline applies WB → exposure → tone → HSL → curves → split-tone → vignette → optional 3D LUT, then letterboxes to canvas.
+5. **Save.** Saved edits are stored as parameter snapshots in Postgres; the gallery thumbnails render the actual graded preview via WebGL, not the raw original.
 
 <br/>
 
@@ -102,7 +106,7 @@ pnpm db:push                        # apply schema to Neon
 pnpm dev
 ```
 
-Open <http://localhost:3000>. Without env keys, Clerk runs in keyless dev mode — saving to the gallery requires real credentials.
+Open <http://localhost:3000>. Without env keys, Clerk runs in keyless dev mode — saving to the gallery requires real credentials. Click **"Or try our sample image"** in the drop zone to start grading without uploading anything.
 
 <br/>
 
@@ -112,7 +116,7 @@ Open <http://localhost:3000>. Without env keys, Clerk runs in keyless dev mode �
 |---|---|---|
 | Framework | **Next.js 16** (App Router) · **React 19** · **TypeScript** | Server components for auth-gated pages, RSC-friendly data fetching |
 | Styling | **Tailwind v4** | Token-driven theme, `@theme inline` for design system |
-| Auth | **Clerk** | Drop-in, keyless dev mode, `<Show>` primitives |
+| Auth | **Clerk** | Drop-in, keyless dev mode, themed via `appearance` overrides |
 | Database | **Neon** + **Drizzle ORM** | Serverless Postgres, branchable, type-safe queries |
 | Storage | **Cloudinary** | Free 25 GB, on-the-fly transforms, no card required |
 | Pixels | **WebGL2** + custom GLSL | Native-res, GPU-accelerated, fully local |
@@ -128,7 +132,7 @@ Open <http://localhost:3000>. Without env keys, Clerk runs in keyless dev mode �
 
 1. Create an app at <https://dashboard.clerk.com>.
 2. Copy the publishable + secret keys into `.env.local`.
-3. *(Optional)* Add a webhook on `user.created` pointing to `/api/webhooks/clerk` for eager DB user creation. The app falls back to lazy creation if the webhook hasn't fired.
+3. The app creates DB user rows lazily on first authenticated request — no webhook needed.
 
 </details>
 
@@ -158,10 +162,12 @@ Open <http://localhost:3000>. Without env keys, Clerk runs in keyless dev mode �
 
 | Command | What it does |
 |---|---|
-| `pnpm dev` | Local dev server (Turbopack) |
+| `pnpm dev` | Local dev server |
 | `pnpm build` · `pnpm start` | Production build / start |
+| `pnpm lint` | Run ESLint |
 | `pnpm db:generate` | Drizzle: generate a migration from the schema diff |
 | `pnpm db:push` | Drizzle: push current schema to the configured DB |
+| `pnpm db:migrate` | Drizzle: apply pending SQL migrations |
 | `pnpm db:studio` | Open Drizzle Studio |
 | `pnpm test:parser` | Smoke-test the NL parser with built-in cases |
 
@@ -174,16 +180,6 @@ Open <http://localhost:3000>. Without env keys, Clerk runs in keyless dev mode �
 | <kbd>B</kbd> *(hold)* | View original — release to return to graded |
 | <kbd>⌘</kbd> + <kbd>S</kbd> | Save edit to gallery |
 | <kbd>⌘</kbd> + <kbd>E</kbd> | Export current grade as JPG |
-
-<br/>
-
-## Deploy
-
-<a href="https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fjiajunl23%2Fnlumination">
-  <img src="https://vercel.com/button" alt="Deploy with Vercel"/>
-</a>
-
-Set the same env vars in project settings and connect the repo. The Clerk middleware (`proxy.ts`) ships automatically.
 
 <br/>
 
