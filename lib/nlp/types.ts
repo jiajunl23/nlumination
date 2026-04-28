@@ -1,4 +1,5 @@
 import type { GradingParams } from "@/lib/grading/params";
+import type { AdaptiveKey } from "./scalers";
 
 export type IntentOp =
   /** Add `amount` to a numeric parameter (path may be nested). */
@@ -19,6 +20,13 @@ export type Intent = {
   description: string;
   /** Optional category for grouping in the chip palette. */
   category?: "light" | "color" | "tone" | "look" | "effect";
+  /**
+   * Optional adaptive-scaling key. When set and image stats are available,
+   * the parser multiplies every `delta` op's amount by the scaler's output
+   * (typically 0.2..1.5). Lets "brighten" be gentle on bright photos and
+   * strong on dark ones without rewriting the slider math.
+   */
+  adaptive?: AdaptiveKey;
 };
 
 export type Modifier = {

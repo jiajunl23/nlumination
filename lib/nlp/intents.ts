@@ -19,24 +19,28 @@ export const INTENTS: Intent[] = [
     phrases: ["brighten", "brighter", "lighter", "lift exposure"],
     ops: [{ kind: "delta", path: "exposure", amount: 0.4 }],
     description: "lift exposure",
+    adaptive: "brighten",
   },
   {
     category: "light",
     phrases: ["darken", "darker", "drop exposure"],
     ops: [{ kind: "delta", path: "exposure", amount: -0.4 }],
     description: "drop exposure",
+    adaptive: "darken",
   },
   {
     category: "light",
     phrases: ["overexposed", "too bright"],
     ops: [{ kind: "delta", path: "exposure", amount: -0.6 }],
     description: "tame overexposure",
+    adaptive: "darken",
   },
   {
     category: "light",
     phrases: ["underexposed", "too dark"],
     ops: [{ kind: "delta", path: "exposure", amount: 0.6 }],
     description: "rescue underexposure",
+    adaptive: "brighten",
   },
 
   // ── Light: tonal regions ──────────────────────────────────────
@@ -48,18 +52,21 @@ export const INTENTS: Intent[] = [
     ],
     ops: [{ kind: "delta", path: "highlights", amount: -45 }],
     description: "pull highlights",
+    adaptive: "highlightsPull",
   },
   {
     category: "tone",
     phrases: ["open shadows", "lift shadows", "raise shadows"],
     ops: [{ kind: "delta", path: "shadows", amount: 35 }],
     description: "open shadows",
+    adaptive: "shadowsLift",
   },
   {
     category: "tone",
     phrases: ["deepen blacks", "crush blacks"],
     ops: [{ kind: "delta", path: "blacks", amount: -30 }],
     description: "deepen blacks",
+    adaptive: "blacksDeepen",
   },
   {
     category: "tone",
@@ -74,12 +81,14 @@ export const INTENTS: Intent[] = [
     phrases: ["punchy", "punchier", "more contrast", "high contrast"],
     ops: [{ kind: "delta", path: "contrast", amount: 30 }],
     description: "more contrast",
+    adaptive: "contrastUp",
   },
   {
     category: "light",
     phrases: ["less contrast", "low contrast", "flat"],
     ops: [{ kind: "delta", path: "contrast", amount: -25 }],
     description: "less contrast",
+    adaptive: "contrastDown",
   },
 
   // ── Color temperature ────────────────────────────────────────
@@ -88,12 +97,14 @@ export const INTENTS: Intent[] = [
     phrases: ["warm", "warmer", "warm tones"],
     ops: [{ kind: "delta", path: "temperature", amount: 22 }],
     description: "warmer",
+    adaptive: "warm",
   },
   {
     category: "color",
     phrases: ["cool", "cooler", "cool tones"],
     ops: [{ kind: "delta", path: "temperature", amount: -22 }],
     description: "cooler",
+    adaptive: "cool",
   },
   {
     category: "color",
@@ -126,6 +137,7 @@ export const INTENTS: Intent[] = [
     phrases: ["vivid", "saturated", "more saturation"],
     ops: [{ kind: "delta", path: "saturation", amount: 22 }],
     description: "more saturated",
+    adaptive: "saturationUp",
   },
   {
     category: "color",

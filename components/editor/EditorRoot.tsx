@@ -17,6 +17,7 @@ import { SliderPanel } from "./SliderPanel";
 import { BeforeAfterToggle } from "./BeforeAfterToggle";
 import { ChatPanel } from "./ChatPanel";
 import { DEFAULT_PARAMS, type GradingParams } from "@/lib/grading/params";
+import { computeImageStats, type ImageStats } from "@/lib/grading/imageStats";
 import { saveEdit, uploadAndCreatePhoto } from "@/lib/storage/upload";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +31,7 @@ export function EditorRoot() {
   const [source, setSource] = useState<ImageBitmap | null>(null);
   const [frame, setFrame] = useState<{ w: number; h: number } | null>(null);
   const [imageVisible, setImageVisible] = useState(false);
+  const [stats, setStats] = useState<ImageStats | null>(null);
   const [params, setParams] = useState<GradingParams>(DEFAULT_PARAMS);
   const [hasImage, setHasImage] = useState(false);
   const [filename, setFilename] = useState<string | null>(null);
@@ -51,6 +53,27 @@ export function EditorRoot() {
     setFilename(file.name);
     setPhotoId(null);
   }, []);
+
+  // Image stats — feed the NL parser so prompts adapt to the photo
+  // (a "brighten" on a bright photo becomes gentle, "warm" on a sunset
+  // doesn't push past believable, etc.). Cheap CPU pass; ~5 ms.
+  useEffect(() => {
+    if (!source) {
+      setStats(null);
+      return;
+    }
+    let aborted = false;
+    computeImageStats(source)
+      .then((s) => {
+        if (!aborted) setStats(s);
+      })
+      .catch(() => {
+        if (!aborted) setStats(null);
+      });
+    return () => {
+      aborted = true;
+    };
+  }, [source]);
 
   // Frame-fit animation: paint at 100%/100% for one frame, transition the inner
   // frame down to the image's contain-fit pixel size (CSS animates width/height
@@ -267,6 +290,7 @@ export function EditorRoot() {
         <ChatPanel
           params={params}
           onParams={setParams}
+          stats={stats}
           layoutNonce={adjustmentsOpen ? 1 : 0}
           className="min-h-[280px] flex-1"
         />

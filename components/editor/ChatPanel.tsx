@@ -7,6 +7,7 @@ import { parsePrompt } from "@/lib/nlp/parser";
 import { suggestForUnmatched } from "@/lib/nlp/fallback";
 import { suggestionFor, summarizeApplied } from "@/lib/nlp/summary";
 import type { GradingParams } from "@/lib/grading/params";
+import type { ImageStats } from "@/lib/grading/imageStats";
 import { cn } from "@/lib/utils";
 
 type Message =
@@ -23,6 +24,12 @@ type Props = {
   params: GradingParams;
   onParams: (next: GradingParams) => void;
   /**
+   * Photo statistics fed into the parser so prompts adapt to the actual
+   * image (e.g. "brighten" is gentle on bright photos, strong on dark ones).
+   * Null until the photo has loaded and stats have been computed.
+   */
+  stats?: ImageStats | null;
+  /**
    * Bumped by the parent whenever the surrounding layout (e.g. the
    * collapsible Adjustments panel) changes height. The chat list pins its
    * scroll to the bottom afterward so the latest message stays visible.
@@ -31,12 +38,14 @@ type Props = {
   className?: string;
 };
 
-export function ChatPanel({ params, onParams, layoutNonce, className }: Props) {
+export function ChatPanel({ params, onParams, stats, layoutNonce, className }: Props) {
   const [value, setValue] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
   const paramsRef = useRef(params);
   paramsRef.current = params;
+  const statsRef = useRef(stats);
+  statsRef.current = stats;
 
   useEffect(() => {
     listRef.current?.scrollTo({
@@ -63,7 +72,7 @@ export function ChatPanel({ params, onParams, layoutNonce, className }: Props) {
     const trimmed = text.trim();
     if (!trimmed) return;
     const before = paramsRef.current;
-    const result = parsePrompt(trimmed, before);
+    const result = parsePrompt(trimmed, before, statsRef.current);
     onParams(result.params);
 
     const applied = summarizeApplied(before, result.params, result.understood);

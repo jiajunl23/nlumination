@@ -22,9 +22,11 @@ import {
   PARAM_RANGES,
   type GradingParams,
 } from "@/lib/grading/params";
+import type { ImageStats } from "@/lib/grading/imageStats";
 import { INTENTS } from "./intents";
 import { MODIFIERS } from "./modifiers";
 import { PRESETS_BY_ID, mergeParams } from "./presets";
+import { adaptiveScale } from "./scalers";
 import type { Intent, IntentOp, Modifier, ParseResult } from "./types";
 
 // ─── Phrase index ─────────────────────────────────────────────
@@ -54,7 +56,11 @@ const FIRST_CHAR_INDEX: Map<string, PhraseEntry[]> = (() => {
 })();
 
 // ─── Public entry point ───────────────────────────────────────
-export function parsePrompt(input: string, base: GradingParams = DEFAULT_PARAMS): ParseResult {
+export function parsePrompt(
+  input: string,
+  base: GradingParams = DEFAULT_PARAMS,
+  stats?: ImageStats | null,
+): ParseResult {
   const text = normalize(input);
   const tokens = tokenize(text);
   const slots = pairModifiers(tokens);
@@ -62,7 +68,8 @@ export function parsePrompt(input: string, base: GradingParams = DEFAULT_PARAMS)
   let params = cloneParams(base);
   const understood: ParseResult["understood"] = [];
   for (const slot of slots) {
-    const scaled = applyScale(slot.intent.ops, slot.scale, slot.invert);
+    const photoScale = adaptiveScale(slot.intent.adaptive, stats);
+    const scaled = applyScale(slot.intent.ops, slot.scale * photoScale, slot.invert);
     params = applyOps(params, scaled);
     understood.push({ phrase: slot.phrase, description: slot.intent.description });
   }
