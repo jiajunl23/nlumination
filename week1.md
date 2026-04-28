@@ -54,6 +54,8 @@ Most of the week's diff was here.
 - **Sticky left pane** — when chat history grows or Adjustments is expanded, the photo stays pinned to the top of the viewport. The right column scrolls independently. No more "where did my image go" moments.
 - **Smoother Adjustments expand** — bumped to 500 ms ease-out so the open/close reads as motion rather than a snap.
 - **Drag-and-drop or click** — DropZone uses an explicit `<div role="button">` + `inputRef.click()` pattern (after the original `<label>` + `<input>` pair turned out to fire the picker multiple times on some browsers).
+- **"Or try our sample image" button** — a small ✨ pill below the drop area fetches a 2400-px / 816 KB sample (`/public/sample.jpg`, downsized from a 4.9 MB source) and decodes it through the same path as a real upload, so first-time visitors can play with the editor without uploading anything. Frame-fit, image stats, and the parser adapter all engage automatically.
+- **Multi-viewport tested** — Playwright sweep across 375 × 667 (iPhone SE), 414 × 896 (iPhone 11), 768 × 1024 (tablet), 1440 × 900 (laptop), and 1920 × 1080 (desktop). Layout splits to dual-column at the `md` breakpoint and stacks single-column below; Adjustments scroll works at every size; zero console errors.
 
 ### 6. Visual identity
 - **Wordmark** — "NLumination" in a single orange → magenta gradient (matching the hero "feel." text). Replaced an earlier dot-and-mixed-case version.
@@ -88,6 +90,7 @@ A real list, in the order they bit us:
 8. **Image flash during frame-fit.** ResizeObserver realloc'd the FBO mid-transition, so the user saw image → blank → image. Hold the photo at `opacity-0` until the frame transition settles, then fade in.
 9. **Image jumped on Adjustments expand.** When the right column outgrew the viewport, body scroll appeared and the left pane shifted. Made the left pane sticky to the viewport so it never moves.
 10. **`/sign-in` redirected to `/`.** Clerk auto-redirects authenticated users away from auth routes. Working as intended; tested by signing out first.
+11. **Adjustments panel couldn't scroll once expanded.** The section used `max-h-[55vh]` but `max-h` inside a flex chain doesn't give descendants a definite height — so the inner `overflow-y-auto` never bounded its content and content past the fold was unreachable. Fixed by switching to a definite `h-[55vh]` / `h-12` with `transition-[height]`, adding `shrink-0` to the header, and lifting the scroll container up to the section wrapper so SliderPanel can stay a plain column. Verified via Playwright at 5 viewport sizes — `inner.scrollHeight` (736 px content) > `inner.clientHeight` at every size.
 
 ---
 
@@ -95,7 +98,7 @@ A real list, in the order they bit us:
 
 | Surface | Count |
 |---|---|
-| Commits this week | 12 (incl. initial) |
+| Commits this week | 13 (incl. initial) |
 | Source files added | 60+ |
 | NL intents | 42 |
 | NL surface phrases | 101 |
@@ -110,6 +113,8 @@ A real list, in the order they bit us:
 | Public pages | 4 (`/`, `/editor`, `/gallery`, `/sign-{in,up}`) |
 | Parser latency | <1 ms |
 | Image-stats latency | ~5 ms (one-shot per upload) |
+| Viewports tested via Playwright | 5 (375 → 1920) |
+| Sample image weight | 816 KB (down from 4.9 MB original) |
 
 ---
 
