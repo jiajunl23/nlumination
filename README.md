@@ -1,6 +1,6 @@
 <div align="center">
 
-<a href="https://nlumination.app">
+<a href="https://nlumination.vercel.app/">
   <img src="./docs/hero.svg" alt="NLumination — Tell your photos how to feel." width="100%"/>
 </a>
 
@@ -13,18 +13,9 @@
 </p>
 
 <p>
-  <a href="https://nlumination.app"><strong>Try it →</strong></a> &nbsp;·&nbsp;
-  <a href="https://nlumination.app/editor">Editor</a> &nbsp;·&nbsp;
-  <a href="https://nlumination.app/gallery">Gallery</a> &nbsp;·&nbsp;
-  <a href="https://github.com/jiajunl23/nlumination/issues">Issues</a>
-</p>
-
-<p>
-  <img alt="Next.js 16" src="https://img.shields.io/badge/Next.js-16-000?style=for-the-badge&logo=nextdotjs&logoColor=white"/>
-  <img alt="React 19" src="https://img.shields.io/badge/React-19-149eca?style=for-the-badge&logo=react&logoColor=white"/>
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white"/>
-  <img alt="Tailwind v4" src="https://img.shields.io/badge/Tailwind-v4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white"/>
-  <img alt="WebGL2" src="https://img.shields.io/badge/WebGL2-client--side-f97316?style=for-the-badge"/>
+  <a href="https://nlumination.vercel.app/">
+    <img alt="Try NLumination live" src="https://img.shields.io/badge/Try%20it%20live-%E2%86%92-ec4899?style=for-the-badge&labelColor=f97316" height="44"/>
+  </a>
 </p>
 
 </div>
