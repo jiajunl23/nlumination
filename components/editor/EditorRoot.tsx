@@ -75,10 +75,11 @@ export function EditorRoot() {
     };
   }, [source]);
 
-  // Frame-fit animation: paint at 100%/100% for one frame, transition the inner
-  // frame down to the image's contain-fit pixel size (CSS animates width/height
-  // for 700 ms), then fade the photo in once the frame has settled — so the
-  // user never sees the WebGL canvas mid-resize blink.
+  // Frame-fit + resize gating. The inner frame animates to the image's
+  // contain-fit pixel size (CSS transition on width/height). The image fades
+  // in only after the frame has been quiet for ~800 ms — covers the initial
+  // load *and* viewport resizes (each ResizeObserver tick re-hides + re-arms
+  // the reveal), so the user never sees the WebGL canvas blink mid-resize.
   useLayoutEffect(() => {
     if (!source || !paneRef.current) {
       setFrame(null);
@@ -87,6 +88,14 @@ export function EditorRoot() {
     }
     setFrame(null);
     setImageVisible(false);
+
+    let lastFrame: { w: number; h: number } | null = null;
+    let revealTimer: ReturnType<typeof setTimeout> | null = null;
+    const armReveal = () => {
+      if (revealTimer) clearTimeout(revealTimer);
+      revealTimer = setTimeout(() => setImageVisible(true), 800);
+    };
+
     const compute = () => {
       const el = paneRef.current;
       if (!el) return;
@@ -95,15 +104,28 @@ export function EditorRoot() {
       if (!cw || !ch) return;
       const iAR = source.width / source.height;
       const cAR = cw / ch;
-      setFrame(iAR > cAR ? { w: cw, h: cw / iAR } : { w: ch * iAR, h: ch });
+      const next = iAR > cAR ? { w: cw, h: cw / iAR } : { w: ch * iAR, h: ch };
+      // Sub-pixel changes don't move anything visible — leave state alone so
+      // a subtle ResizeObserver tick doesn't re-trigger the fade.
+      if (
+        lastFrame &&
+        Math.abs(lastFrame.w - next.w) < 0.5 &&
+        Math.abs(lastFrame.h - next.h) < 0.5
+      ) {
+        return;
+      }
+      lastFrame = next;
+      setFrame(next);
+      setImageVisible(false);
+      armReveal();
     };
+
     const raf1 = requestAnimationFrame(() => requestAnimationFrame(compute));
-    const reveal = setTimeout(() => setImageVisible(true), 760);
     const ro = new ResizeObserver(compute);
     ro.observe(paneRef.current);
     return () => {
       cancelAnimationFrame(raf1);
-      clearTimeout(reveal);
+      if (revealTimer) clearTimeout(revealTimer);
       ro.disconnect();
     };
   }, [source]);

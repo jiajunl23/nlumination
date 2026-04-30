@@ -53,6 +53,15 @@ const ALL_EXAMPLES: ExampleChip[] = [
 
 const EXAMPLES_QUERY_RE = /^\s*(examples?|more|more examples?|show examples?|help|ideas?|inspire me)\s*$/i;
 
+function shuffledExamples(n = 6): ExampleChip[] {
+  const arr = ALL_EXAMPLES.slice();
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr.slice(0, Math.min(n, arr.length));
+}
+
 const WELCOME: Message = {
   id: "welcome",
   role: "assistant",
@@ -121,7 +130,7 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
           id: `a-${ts}`,
           role: "assistant",
           text: "Here are more ideas — click any to try, or remix them with your own words:",
-          tryChips: ALL_EXAMPLES,
+          tryChips: shuffledExamples(),
         },
       ]);
       setValue("");
