@@ -6,6 +6,8 @@ import {
   integer,
   uuid,
   index,
+  date,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 import type { GradingParams } from "@/lib/grading/params";
 
@@ -56,6 +58,22 @@ export const edits = pgTable(
   (t) => [index("edits_photo_id_idx").on(t.photoId, t.createdAt)],
 );
 
+// Per-user daily LLM call counter for the NL editor's AI fallback path.
+// Keyed on (userId, day-as-UTC-YYYY-MM-DD); the route does an atomic
+// upsert/increment, so no transactional logic is needed.
+export const llmUsage = pgTable(
+  "llm_usage",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    day: date("day").notNull(),
+    count: integer("count").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.day] })],
+);
+
 export type DBUser = typeof users.$inferSelect;
 export type DBPhoto = typeof photos.$inferSelect;
 export type DBEdit = typeof edits.$inferSelect;
+export type DBLlmUsage = typeof llmUsage.$inferSelect;
