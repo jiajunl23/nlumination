@@ -150,3 +150,223 @@ Failure modes also exercised:
 - **Curve UI.** Same as week 1's "what's next" — still pending.
 - **Live quota indicator** in the toggle area (not just per-message), so users can see how many AI calls they have left before they spend one.
 - **Per-tenant key support.** Right now everyone shares the global Groq key. If we wanted users to bring their own keys for unlimited calls, the route already has the seam — just needs a `users.groqKey` column and a precedence check.
+
+---
+
+# Week 2 (continued) — Multi-agent upgrade
+
+After the single-shot LLM landed, three pain points showed up in real use:
+
+1. **Same prompt, different image, same numbers.** The single-shot prompt sees only `meanLuminance/stdLuminance/dominant cast` summarised as `dark, low-contrast, warm-cast`. "Make it warmer" returns the same `+25 temp` whether the photo is already amber or genuinely cold. The LLM has no chance to *read* the image at the precision the prompt deserves.
+2. **Compound emotional language.** "Moody but not too dark", "vintage with golden hour feel" — these have internal tensions or layered references. Single-shot has to reason about feeling AND read the image AND decide values in one breath. The 20B model isn't reliable at all three.
+3. **Groq budget visibility.** The original 50/day cap was opaque — no way for the user to spend it differently between cheap prompts and expensive ones.
+
+The fix is a multi-agent pipeline (LangGraph mental model, **zero new dependencies** — same `openai` SDK, same Groq endpoint, just orchestrated differently) plus a 3-mode toggle so the user explicitly chooses cost-vs-quality per prompt.
+
+## Three modes, one shared budget
+
+| Mode      | Path                                                           | Cost (LLM calls) |
+| --------- | -------------------------------------------------------------- | ---------------- |
+| `auto`    | Local parser first. LLM fallback only when parser misses       | 0 or 1           |
+| `llm`     | Single-shot Groq → JSON delta (the original week-2 design)     | 1                |
+| `agents`  | Emotion analyst ‖ Image-mood analyst → Action agent            | 3 or 4           |
+
+Daily limit went from 50 → **100 calls/day**, billed by **actual call count** (not user requests). One user can do 100 cheap LLM prompts, ~25-33 agents prompts, or any mix. `auto` mode hits the parser on common phrasings ("warmer", "more contrast", "moody, blue shadows") and consumes 0 budget.
+
+When `agents` is requested but budget < 4, the route **automatically downgrades to `llm`** and the response carries `downgraded: true`; the chat shows a one-line note "Budget low — used LLM mode instead of Agents". No silent surprises.
+
+## Three-agent pipeline (the meat)
+
+```
+       User prompt   +   ImageStats   +   currentParams
+            │                │                 │
+            ├────────────────┤                 │
+            ▼                ▼                 │
+   ┌──────────────┐  ┌──────────────┐          │
+   │  Agent 1:    │  │  Agent 2:    │   parallel
+   │  Emotion     │  │  Image Mood  │   (Promise.all)
+   │  Analyst     │  │  Analyst     │          │
+   └──────┬───────┘  └──────┬───────┘          │
+          │                 │                  │
+          └────────┬────────┘                  │
+                   ▼                           ▼
+           ┌───────────────────────────────────────┐
+           │  Agent 3: Action Agent                │
+           │  (tools: applyPreset, submitFinalDelta) │
+           └───────────────────┬───────────────────┘
+                               ▼
+                          LLMDelta
+```
+
+**Agent 1 — Emotion Analyst**: digests the user's prompt into a structured-but-free-form emotion vector. Detects qualities like "melancholy +moderate", "warmth +subtle"; resolves photographic terms (`chiaroscuro`, `golden hour`) and self-explains them; flags internal tensions ("wants moody but explicitly says 'not too dark'").
+
+**Agent 2 — Image Mood Analyst**: digests the actual `ImageStats` numbers (`meanLuminance=0.32`, `p05=0.05`, `meanR > meanB`, etc.) into a brief about the image's *current* personality and where it has *headroom* for modification — "shadows can be lifted up to +30 without crushing", "more warmth is risky (already warm-cast)". Agent 3 reads the brief, not the raw numbers.
+
+**Agent 3 — Action Agent**: gets both briefs + the raw user prompt as a fall-back truth source, and outputs the final `LLMDelta`. Has access to two tools: `applyPreset(name)` to peek at any of the 8 preset diffs as a starting point, and `submitFinalDelta(...)` whose args ARE the final answer (more on this below).
+
+Each agent has its **own** SYSTEM_PROMPT and JSON Schema, ~250-450 tokens each. Three small, focused prompts beat one 1200-token mega-prompt at consistency for a 20B model.
+
+### LangGraph mental model → our code
+
+| LangGraph concept              | Our equivalent                                       | File                                     |
+| ------------------------------ | ---------------------------------------------------- | ---------------------------------------- |
+| `StateGraph` (multi-agent)     | `runAgentsPipeline(input)`                           | `lib/nlp/agent/graph.ts`                 |
+| Shared TypedDict state         | `AgentState` interface                               | `lib/nlp/agent/state.ts`                 |
+| Analyst node                   | one `(state) => Promise<void>` function each         | `lib/nlp/agent/nodes/{emotion,imageMood}Analyst.ts` |
+| Parallel branches              | `await Promise.all([nodeA(s), nodeB(s)])`            | `graph.ts`                               |
+| Tool                           | `{name, description, parameters, execute}` object    | `lib/nlp/agent/tools.ts`                 |
+| ToolNode + ReAct loop          | inline while-loop in `actionAgent.ts`                | `lib/nlp/agent/nodes/actionAgent.ts`     |
+| `END`                          | `state.finalDelta != null` exits the loop            | `actionAgent.ts`                         |
+
+We deliberately did NOT import `@langchain/langgraph` (~600KB + 20 transitive deps). Hand-writing the orchestrator in ~30 lines of TypeScript proved easier to read, debug, and trace.
+
+## Three Groq landmines (worth writing down)
+
+While building the action agent, three Groq quirks surprised us:
+
+### 1. `tools` and `response_format: json_schema` are mutually exclusive
+
+```
+[actionAgent] Groq APIError: 400 json mode cannot be combined with tool/function calling
+```
+
+OpenAI's API allows them together; Groq doesn't. So the action agent can't say "here are the tools, AND please format your final non-tool answer per this schema". You have to pick one.
+
+**The fix that worked**: ditch `response_format` entirely. Make the final delta itself a tool — `submitFinalDelta`, with `LLM_JSON_SCHEMA` as its `parameters`. The model's "answer" is a tool call whose **arguments are the LLMDelta**. We intercept that tool name and treat its args as the final output (Zod-validated) instead of dispatching it. ReAct loop becomes:
+
+- iter 0: `tool_choice: "auto"` — model picks `applyPreset` (preview) OR `submitFinalDelta` (done)
+- iter 1: `tool_choice: { type: "function", function: { name: "submitFinalDelta" } }` — model is **forced** to deliver the answer
+
+Cost: 1 call (no preset) or 2 calls (preset previewed → final). Together with A1+A2, agents-mode runs 3 or 4 calls per prompt.
+
+### 2. `strict: false` still validates schema strictly
+
+```
+[imageMoodAnalyst] Groq APIError: 400 Failed to validate JSON
+[imageMoodAnalyst] Groq APIError: 400 jsonschema: '' does not validate with /required: missing properties: 'modification_guidance', 'summary'
+```
+
+Groq's `strict: false` is documented as "guides but doesn't enforce" — in practice it still rejects responses that miss `required` fields. The 20B model occasionally omits `summary` or `modification_guidance`.
+
+**The fix that worked**: drop `required` arrays AND `minLength` from the JSON Schema mirror entirely (the JSON Schema only *guides* now), keep all fields required at the **Zod** layer with `.optional().default("")` so missing fields parse cleanly. We get strong typing on the consumer side without rigid Groq-side gatekeeping.
+
+### 3. `gpt-oss-20b` reasoning tokens count toward billing
+
+`completion.usage.completion_tokens_details.reasoning_tokens: 29` — gpt-oss is OpenAI's o1-style reasoning family. Hidden chain-of-thought tokens count toward the visible `completion_tokens`. Roughly 20-100 tok per call. Over 4 agents-mode calls that's 80-400 tok overhead beyond what the JSON output suggests. Still well under Groq's 8K TPM ceiling.
+
+## Free-form schemas (the analyst output design)
+
+Both analysts emit JSON, but the JSON deliberately uses **`string` fields where a fixed enum would be tempting**:
+
+```ts
+// EmotionAnalysis
+detected_qualities: Array<{
+  name: string,                                   // ← free-form, NOT enum
+  direction: "+" | "-",                           // ← enum (genuinely binary)
+  intensity: "subtle" | "moderate" | "strong",    // ← enum (canonical 3-step)
+  rationale: string,
+}>
+
+// ImageMoodAnalysis
+notable_observations: Array<{
+  aspect: string,                                 // ← free-form
+  finding: string,
+  implication: string,
+}>
+```
+
+The split is "use enum where the taxonomy is genuinely small and stable; use string everywhere else". A `primary_mood` enum of 7 options would silently squash "calm but slightly melancholic" into one bucket. Free-form `mood_description: string` lets the analyst express that nuance, and downstream Agent 3 (also a language model) reads it just fine.
+
+Length caps (`.max(280)` on free-text fields, `.max(8)` on arrays) keep tokens bounded without prescribing content shape.
+
+## Failure tolerance — three layers of fallback
+
+```
+agents pipeline                         single-shot
+─────────────────                       ───────────
+A1 fail → state.emotionAnalysis = null  →
+A2 fail → state.imageMood = null        → Agent 3 runs anyway, infers from raw user prompt
+A3 fail → state.error set              ↘
+                                         singleShotFallback() (the original LLM mode logic)
+                                       ↘
+                                         If even single-shot fails, the parser's chips UI
+                                         takes over on the client. Editor never breaks.
+```
+
+Every analyst failure logs to `state.trace` with the reason; the user sees it as `🖼️ Image analyst failed (...)` in the chat. Every level charges only for calls that actually hit Groq — failed analysts cost 0.
+
+This was tested live: the very first agents request hit Groq's `tools+response_format` combo error (before the `submitFinalDelta` refactor) — A3 failed, route auto-fell back to single-shot, and the user got a usable delta after a 6.6 s round-trip. The error never reached the UI.
+
+## ChatPanel — 3-way toggle with cost transparency
+
+```
+┌─────────────────────────────────────┐
+│ ✦ Prompt          [Auto] [LLM] [Agents] │
+│ Emotion + Image analysts → Action (3-4 calls)    Calls used today: 5/100 │
+│ ...                                 │
+└─────────────────────────────────────┘
+```
+
+The hint line under the toggle changes per mode (from `MODE_COST[mode].hint` — single source of truth shared with the server). When budget < `agents.estimated`, the Agents button is disabled with tooltip "Not enough budget — try LLM (1 call) or Auto". When the server downgrades a request, the assistant message appends "Budget low — used LLM mode instead of Agents."
+
+Old localStorage values (`"ai"`) are migrated to `"llm"` by `normalizeStoredMode()` so existing users don't lose their preference.
+
+## Trace UI
+
+Each agents-mode response carries a `trace: TraceEntry[]` from the server. The chat renders one line per breadcrumb in the assistant message:
+
+```
+🖼️ Read image
+🧠 Analyzed emotion
+🔧 Tool submitFinalDelta ok
+✨ Composed delta
+```
+
+This is the multi-agent equivalent of "AI thinking..." — the user sees what each agent is doing without needing streaming. With three Groq calls in ~3-5 s total wall time, this is plenty.
+
+## Numbers
+
+Per-mode latency (sample run on the airport sample image, GROQ free tier):
+
+| Mode    | Wall time | Calls | Notes                                                |
+| ------- | --------- | ----- | ---------------------------------------------------- |
+| `auto`  | <50 ms    | 0     | "warmer" → parser hit, no network                    |
+| `llm`   | ~1.0 s    | 1     | "subtle warm glow, slightly faded" → LLMDelta        |
+| `agents`| ~5.3 s    | 3     | "vintage with golden hour feel" → A1+A2 ‖, then A3   |
+| `agents`| ~3.3 s    | 2     | A2 failed (Groq schema reject) → A3 still produced delta from A1 alone — 2 charged calls |
+
+Token usage per agents prompt: roughly 800-1500 input + 400-700 output total across the three calls. Within the 8K TPM / 200K TPD free-tier limits.
+
+## Files added / changed
+
+```
+lib/nlp/modes.ts                            (new) Mode/MODE_COST/normalizeStoredMode
+lib/nlp/quota.ts                            (changed) incrementUsage(by) + DAILY_LLM_LIMIT 100
+lib/nlp/agent/groq.ts                       (new) shared lazy-init Groq client + GROQ_MODEL
+lib/nlp/agent/state.ts                      (new) AgentState + initialState + TraceEntry union
+lib/nlp/agent/schemas.ts                    (new) Zod schemas + JSON Schema mirrors for A1, A2
+lib/nlp/agent/prompts.ts                    (new) 3 SYSTEM_PROMPTs + buildXxxUserPrompt builders
+lib/nlp/agent/tools.ts                      (new) applyPreset + submitFinalDelta + dispatchTool
+lib/nlp/agent/nodes/emotionAnalyst.ts       (new) single-shot A1 node
+lib/nlp/agent/nodes/imageMoodAnalyst.ts     (new) single-shot A2 node
+lib/nlp/agent/nodes/actionAgent.ts          (new) ReAct loop A3 (MAX_ITER=2)
+lib/nlp/agent/graph.ts                      (new) runAgentsPipeline = Promise.all([A1,A2]) → A3
+app/api/nlp/interpret/route.ts              (rewritten) mode dispatch + auto-downgrade + per-call billing
+components/editor/ChatPanel.tsx             (rewritten) 3-way toggle, budget UI, trace lines, downgrade banner
+```
+
+`lib/nlp/llm-prompt.ts`, `lib/nlp/llm-schema.ts`, and `lib/nlp/parser.ts` were left untouched — single-shot mode and the parser still own their lanes.
+
+## Why this is a milestone
+
+- **Cost is honest.** "Multi-agent" used to mean "several times more expensive" without the user knowing. Here, each LLM call is counted, displayed live, and the toggle hints make trade-offs visible.
+- **Quality has a real story.** "Vintage with golden hour feel" produced 10 simultaneous adjustments (EV, contrast, highlights, shadows, whites, temp, tint, vibrance, saturation, clarity) that single-shot mode would never coordinate that tightly.
+- **Failure modes are covered.** Three independent Groq errors hit during E2E testing; all three were absorbed by fallback layers without breaking the editor.
+- **Zero new dependencies.** No `langchain`, no `langgraph`, no `ai`. The orchestration is ~30 lines of TypeScript — cheap to read, cheap to maintain, easy to evolve.
+
+## What's next (still planned)
+
+- **Streaming the action agent's tokens** so the trace lines feel even faster.
+- **Image-aware preset retrieval.** Right now A3 sees a static catalog of preset descriptions. Embedding-based retrieval (best preset for *this image*'s state) would reduce A3's guesswork.
+- **A1/A2 also as ReAct.** They're single-shot today; giving them tools (e.g. A2 could query specific stat percentiles on demand) would unlock more nuanced briefs at the cost of more tokens.
+- **Per-tenant key support.** Same as before — still pending.

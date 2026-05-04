@@ -1,83 +1,65 @@
+/**
+ * NL → grading delta endpoint. Two server-visible modes (the third,
+ * `auto`, is a client-side strategy and never reaches the server):
+ *
+ *   - "llm"    : single-shot Groq call, ~1 LLM call
+ *   - "agents" : multi-agent pipeline (A1 ‖ A2 → A3), 3–4 LLM calls
+ *
+ * Quota is charged by ACTUAL call count (state.callCount for agents,
+ * 1 for llm) — not by user request. A user with 100/day budget gets
+ * ~25 agents-mode prompts or ~100 llm-mode prompts, mixed freely.
+ *
+ * Auto-downgrade: if `mode: agents` is requested but the user has
+ * fewer than agents.estimated calls left, we transparently downgrade
+ * to llm and return `downgraded: true` so the UI can flag it.
+ */
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import OpenAI from "openai";
 import { requireDbUser, UnauthorizedError } from "@/lib/auth/current-user";
-import { LLMDelta, LLM_JSON_SCHEMA } from "@/lib/nlp/llm-schema";
+import { LLMDelta, LLM_JSON_SCHEMA, type LLMDeltaT } from "@/lib/nlp/llm-schema";
 import { SYSTEM_PROMPT, buildUserPrompt } from "@/lib/nlp/llm-prompt";
-import { DAILY_LLM_LIMIT, getRemaining, incrementUsage } from "@/lib/nlp/quota";
+import { DAILY_LLM_LIMIT, MODE_COST, type ServerMode } from "@/lib/nlp/modes";
+import { getRemaining, incrementUsage } from "@/lib/nlp/quota";
+import { runAgentsPipeline } from "@/lib/nlp/agent/graph";
+import { getGroq, GROQ_MODEL } from "@/lib/nlp/agent/groq";
 import type { GradingParams } from "@/lib/grading/params";
 import type { ImageStats } from "@/lib/grading/imageStats";
-
-// Groq is OpenAI-API-compatible. Same SDK, different baseURL.
-// Construct lazily — `new OpenAI({ apiKey: undefined })` throws synchronously
-// at module-evaluation time, which would crash the whole route file before
-// the missing-key check below ever runs.
-let groqClient: OpenAI | null | undefined;
-function getGroq(): OpenAI | null {
-  if (groqClient !== undefined) return groqClient;
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) {
-    groqClient = null;
-    return null;
-  }
-  groqClient = new OpenAI({ apiKey, baseURL: "https://api.groq.com/openai/v1" });
-  return groqClient;
-}
+import type { TraceEntry } from "@/lib/nlp/agent/state";
 
 const Body = z.object({
   prompt: z.string().min(1).max(500),
   current: z.unknown(),
   stats: z.unknown().optional().nullable(),
+  mode: z.enum(["llm", "agents"]).default("llm"),
 });
 
-export async function POST(req: Request) {
+interface SingleShotResult {
+  delta: LLMDeltaT | null;
+  callCount: number;
+  error: string | null;
+}
+
+async function singleShotFallback(input: {
+  prompt: string;
+  current: GradingParams;
+  stats: ImageStats | null;
+}): Promise<SingleShotResult> {
+  const groq = getGroq();
+  if (!groq) return { delta: null, callCount: 0, error: "groq_not_configured" };
+
   try {
-    const groq = getGroq();
-    if (!groq) {
-      return NextResponse.json(
-        { error: "AI fallback not configured", code: "not_configured" },
-        { status: 503 },
-      );
-    }
-
-    const userId = await requireDbUser();
-    const { prompt, current, stats } = Body.parse(await req.json());
-
-    const remaining = await getRemaining(userId);
-    if (remaining <= 0) {
-      return NextResponse.json(
-        {
-          error: `Daily AI limit reached (${DAILY_LLM_LIMIT}/day).`,
-          code: "quota_exceeded",
-          quota: { used: DAILY_LLM_LIMIT, limit: DAILY_LLM_LIMIT },
-        },
-        { status: 429 },
-      );
-    }
-
     const completion = await groq.chat.completions.create({
-      model: "openai/gpt-oss-20b",
+      model: GROQ_MODEL,
       temperature: 0.2,
-      // 384 occasionally truncates mid-JSON for richer prompts (model hits
-      // the cap before closing the object). 1024 leaves comfortable
-      // headroom; the actual valid responses are well under 200 tokens.
       max_tokens: 1024,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {
           role: "user",
-          content: buildUserPrompt(
-            prompt,
-            current as GradingParams,
-            (stats ?? null) as ImageStats | null,
-          ),
+          content: buildUserPrompt(input.prompt, input.current, input.stats),
         },
       ],
-      // strict: true would require every property to appear in `required`
-      // arrays per OpenAI's structured-output spec — rebuilding the schema
-      // to comply (with nullable types for "optional" fields) doubles the
-      // schema size for marginal benefit. strict: false still uses the
-      // schema to guide output; Zod re-validates and clamps every field.
       response_format: {
         type: "json_schema",
         json_schema: {
@@ -87,47 +69,152 @@ export async function POST(req: Request) {
         },
       },
     });
-
     const raw = completion.choices[0]?.message.content ?? "{}";
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
+    const parsed = JSON.parse(raw);
+    const delta = LLMDelta.parse(parsed);
+    return { delta, callCount: 1, error: null };
+  } catch (err) {
+    if (err instanceof OpenAI.APIError) {
+      console.error("[singleShot] Groq APIError:", err.status, err.message);
+    } else {
+      console.error("[singleShot] error:", err);
+    }
+    // No callCount — Groq either rejected before generating or threw.
+    return { delta: null, callCount: 0, error: "single_shot_failed" };
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    if (!getGroq()) {
       return NextResponse.json(
-        { error: "Model returned invalid JSON", code: "bad_json" },
+        { error: "AI not configured", code: "not_configured" },
+        { status: 503 },
+      );
+    }
+
+    const userId = await requireDbUser();
+    const { prompt, current, stats, mode } = Body.parse(await req.json());
+
+    const remaining = await getRemaining(userId);
+
+    let actualMode: ServerMode = mode;
+    let downgraded = false;
+
+    if (mode === "agents" && remaining < MODE_COST.agents.estimated) {
+      if (remaining >= MODE_COST.llm.estimated) {
+        actualMode = "llm";
+        downgraded = true;
+      } else {
+        return NextResponse.json(
+          {
+            error: `Daily limit reached (${DAILY_LLM_LIMIT}/day).`,
+            code: "quota_exceeded",
+            quota: { used: DAILY_LLM_LIMIT, limit: DAILY_LLM_LIMIT },
+          },
+          { status: 429 },
+        );
+      }
+    } else if (mode === "llm" && remaining < MODE_COST.llm.estimated) {
+      return NextResponse.json(
+        {
+          error: `Daily limit reached (${DAILY_LLM_LIMIT}/day).`,
+          code: "quota_exceeded",
+          quota: { used: DAILY_LLM_LIMIT, limit: DAILY_LLM_LIMIT },
+        },
+        { status: 429 },
+      );
+    }
+
+    let delta: LLMDeltaT | null = null;
+    let callCount = 0;
+    let trace: TraceEntry[] | undefined;
+    let pipelineError: string | null = null;
+
+    if (actualMode === "agents") {
+      const state = await runAgentsPipeline({
+        userPrompt: prompt,
+        currentParams: current as GradingParams,
+        imageStats: (stats ?? null) as ImageStats | null,
+      });
+      trace = state.trace;
+      callCount += state.callCount;
+      if (state.finalDelta) {
+        delta = state.finalDelta;
+      } else {
+        pipelineError = state.error ?? "agents_no_delta";
+        // Try single-shot fallback if budget still allows.
+        if (remaining - callCount >= MODE_COST.llm.estimated) {
+          state.trace.push({ node: "fallback", reason: pipelineError });
+          const fb = await singleShotFallback({
+            prompt,
+            current: current as GradingParams,
+            stats: (stats ?? null) as ImageStats | null,
+          });
+          callCount += fb.callCount;
+          if (fb.delta) {
+            delta = fb.delta;
+            pipelineError = null;
+          }
+        }
+      }
+    } else {
+      const fb = await singleShotFallback({
+        prompt,
+        current: current as GradingParams,
+        stats: (stats ?? null) as ImageStats | null,
+      });
+      callCount += fb.callCount;
+      if (fb.delta) delta = fb.delta;
+      else pipelineError = fb.error ?? "llm_failed";
+    }
+
+    if (callCount > 0) {
+      const newCount = await incrementUsage(userId, callCount);
+      const quota = { used: newCount, limit: DAILY_LLM_LIMIT };
+      if (delta) {
+        return NextResponse.json({ delta, quota, trace, downgraded });
+      }
+      return NextResponse.json(
+        {
+          error: "Interpreter failed",
+          code: pipelineError ?? "no_delta",
+          quota,
+          trace,
+          downgraded,
+        },
         { status: 502 },
       );
     }
 
-    let delta;
-    try {
-      delta = LLMDelta.parse(parsed);
-    } catch (zerr) {
-      console.error("[nlp] LLMDelta.parse failed. Raw model output:", raw);
-      throw zerr;
-    }
-    const newCount = await incrementUsage(userId);
-
-    return NextResponse.json({
-      delta,
-      quota: { used: newCount, limit: DAILY_LLM_LIMIT },
-    });
+    return NextResponse.json(
+      {
+        error: "Interpreter unavailable",
+        code: pipelineError ?? "internal",
+        trace,
+      },
+      { status: 503 },
+    );
   } catch (err) {
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: err.message }, { status: 401 });
     }
     if (err instanceof z.ZodError) {
-      console.error("[nlp] ZodError issues:", JSON.stringify(err.issues));
+      console.error("[nlp] ZodError:", JSON.stringify(err.issues));
       return NextResponse.json(
         { error: "Bad request", issues: err.issues },
         { status: 400 },
       );
     }
     if (err instanceof OpenAI.APIError) {
-      console.error("[nlp] Groq APIError:", err.status, err.message, JSON.stringify(err.error ?? {}));
-      // Surface Groq's own 429 / 5xx with a clean shape so the client can
-      // fall back to chips without parsing the raw provider error.
-      const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 502;
+      console.error(
+        "[nlp] Groq APIError:",
+        err.status,
+        err.message,
+        JSON.stringify(err.error ?? {}),
+      );
+      const status =
+        err.status && err.status >= 400 && err.status < 600 ? err.status : 502;
       return NextResponse.json(
         { error: "Interpreter unavailable", code: "upstream_error" },
         { status },

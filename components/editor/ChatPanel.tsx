@@ -1,19 +1,26 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Sparkles, Send, Loader2, Wand2 } from "lucide-react";
+import { Sparkles, Send, Loader2, Wand2, Bot } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
 import { parsePrompt } from "@/lib/nlp/parser";
 import { suggestForUnmatched } from "@/lib/nlp/fallback";
 import { suggestionFor, summarizeApplied } from "@/lib/nlp/summary";
 import { hasDelta, mergeDelta, type LLMDeltaT } from "@/lib/nlp/llm-schema";
+import {
+  type Mode,
+  type ServerMode,
+  MODE_COST,
+  DAILY_LLM_LIMIT,
+  normalizeStoredMode,
+} from "@/lib/nlp/modes";
+import type { TraceEntry } from "@/lib/nlp/agent/state";
 import type { ParseResult } from "@/lib/nlp/types";
 import type { GradingParams } from "@/lib/grading/params";
 import type { ImageStats } from "@/lib/grading/imageStats";
 import { cn } from "@/lib/utils";
 
 type ExampleChip = { phrase: string; description: string };
-type Mode = "auto" | "ai";
 
 type Message =
   | { id: string; role: "user"; text: string }
@@ -21,13 +28,17 @@ type Message =
       id: string;
       role: "assistant";
       thinking?: boolean;
+      thinkingLabel?: string;
       ai?: boolean;
+      agents?: boolean;
       text?: string;
       applied?: string[];
       reasoning?: string;
       quota?: { used: number; limit: number };
       hint?: string;
       tryChips?: ExampleChip[];
+      trace?: TraceEntry[];
+      downgraded?: boolean;
     };
 
 const STARTER_EXAMPLES: ExampleChip[] = [
@@ -39,27 +50,24 @@ const STARTER_EXAMPLES: ExampleChip[] = [
 ];
 
 const ALL_EXAMPLES: ExampleChip[] = [
-  // looks
   { phrase: "cinematic", description: "cinematic teal-orange" },
   { phrase: "filmic", description: "film emulation" },
   { phrase: "vintage", description: "vintage fade" },
   { phrase: "moody, blue shadows", description: "moody + blue shadows" },
   { phrase: "golden hour, warmer", description: "golden hour" },
   { phrase: "cyberpunk", description: "cyberpunk" },
-  // color
   { phrase: "warmer", description: "warmer" },
   { phrase: "cooler", description: "cooler" },
   { phrase: "bluer sky", description: "deepen sky" },
   { phrase: "greener foliage", description: "deepen greens" },
-  // tone
   { phrase: "more contrast, punchier", description: "punchier" },
   { phrase: "less contrast, softer", description: "soft mood" },
-  // compound — shows off the parser
   { phrase: "subtly warmer and a bit moody", description: "compound prompt" },
   { phrase: "protect highlights, lift shadows", description: "tame the dynamic range" },
 ];
 
-const EXAMPLES_QUERY_RE = /^\s*(examples?|more|more examples?|show examples?|help|ideas?|inspire me)\s*$/i;
+const EXAMPLES_QUERY_RE =
+  /^\s*(examples?|more|more examples?|show examples?|help|ideas?|inspire me)\s*$/i;
 const MODE_KEY = "nlumination.aiMode";
 
 function shuffledExamples(n = 6): ExampleChip[] {
@@ -81,44 +89,60 @@ const WELCOME: Message = {
 type Props = {
   params: GradingParams;
   onParams: (next: GradingParams) => void;
-  /**
-   * Photo statistics fed into the parser so prompts adapt to the actual
-   * image (e.g. "brighten" is gentle on bright photos, strong on dark ones).
-   * Null until the photo has loaded and stats have been computed.
-   */
   stats?: ImageStats | null;
-  /**
-   * Bumped by the parent whenever the surrounding layout (e.g. the
-   * collapsible Adjustments panel) changes height. The chat list pins its
-   * scroll to the bottom afterward so the latest message stays visible.
-   */
   layoutNonce?: number;
   className?: string;
 };
 
 type LLMResponse =
-  | { ok: true; delta: LLMDeltaT; quota: { used: number; limit: number } }
-  | { ok: false; reason: "quota" | "auth" | "unavailable"; quotaLimit?: number };
+  | {
+      ok: true;
+      delta: LLMDeltaT;
+      quota: { used: number; limit: number };
+      trace?: TraceEntry[];
+      downgraded?: boolean;
+    }
+  | {
+      ok: false;
+      reason: "quota" | "auth" | "unavailable";
+      quotaLimit?: number;
+      trace?: TraceEntry[];
+    };
 
 async function callLLM(
   prompt: string,
   current: GradingParams,
   stats: ImageStats | null | undefined,
+  mode: ServerMode,
 ): Promise<LLMResponse> {
   try {
     const res = await fetch("/api/nlp/interpret", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, current, stats: stats ?? null }),
+      body: JSON.stringify({ prompt, current, stats: stats ?? null, mode }),
     });
     if (res.status === 401) return { ok: false, reason: "auth" };
     if (res.status === 429) {
       const body = await res.json().catch(() => ({}));
       return { ok: false, reason: "quota", quotaLimit: body?.quota?.limit };
     }
-    if (!res.ok) return { ok: false, reason: "unavailable" };
-    const body = (await res.json()) as { delta: LLMDeltaT; quota: { used: number; limit: number } };
-    return { ok: true, delta: body.delta, quota: body.quota };
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      return { ok: false, reason: "unavailable", trace: body?.trace };
+    }
+    const body = (await res.json()) as {
+      delta: LLMDeltaT;
+      quota: { used: number; limit: number };
+      trace?: TraceEntry[];
+      downgraded?: boolean;
+    };
+    return {
+      ok: true,
+      delta: body.delta,
+      quota: body.quota,
+      trace: body.trace,
+      downgraded: body.downgraded,
+    };
   } catch {
     return { ok: false, reason: "unavailable" };
   }
@@ -129,18 +153,19 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
   const [value, setValue] = useState("");
   const [messages, setMessages] = useState<Message[]>([WELCOME]);
   const [mode, setMode] = useState<Mode>("auto");
+  const [quotaState, setQuotaState] = useState<{ used: number; limit: number } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const paramsRef = useRef(params);
   paramsRef.current = params;
   const statsRef = useRef(stats);
   statsRef.current = stats;
 
-  // Hydrate persisted mode after mount to avoid SSR/CSR mismatch.
+  // Hydrate persisted mode after mount; "ai" → "llm" backward compat.
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(MODE_KEY);
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (saved === "ai" || saved === "auto") setMode(saved);
+      setMode(normalizeStoredMode(saved));
     } catch {
       /* ignore */
     }
@@ -162,9 +187,6 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
     });
   }, [messages.length, messages]);
 
-  // When the surrounding layout shifts (e.g. Adjustments expands), wait for
-  // the height transition and re-pin to the bottom so the latest message
-  // doesn't get hidden behind the newly-grown panel.
   useEffect(() => {
     if (layoutNonce === undefined) return;
     const t = setTimeout(() => {
@@ -176,6 +198,12 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
     return () => clearTimeout(t);
   }, [layoutNonce]);
 
+  const remaining = quotaState
+    ? Math.max(0, quotaState.limit - quotaState.used)
+    : DAILY_LLM_LIMIT;
+  const agentsAffordable = remaining >= MODE_COST.agents.estimated;
+  const llmAffordable = remaining >= MODE_COST.llm.estimated;
+
   // ── Message factories ─────────────────────────────────────────────
   const userMsg = (ts: number, text: string): Message => ({
     id: `u-${ts}`,
@@ -183,10 +211,11 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
     text,
   });
 
-  const thinkingMsg = (ts: number): Message => ({
+  const thinkingMsg = (ts: number, label: string): Message => ({
     id: `a-${ts}`,
     role: "assistant",
     thinking: true,
+    thinkingLabel: label,
   });
 
   const parserAppliedMsg = (
@@ -226,15 +255,19 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
     next: GradingParams,
     delta: LLMDeltaT,
     quota: { used: number; limit: number },
+    opts: { agents?: boolean; trace?: TraceEntry[]; downgraded?: boolean } = {},
   ): Message => {
     const applied = summarizeApplied(before, next, []);
     return {
       id: `a-${ts}`,
       role: "assistant",
-      ai: true,
+      ai: !opts.agents,
+      agents: opts.agents,
       applied: applied.length ? applied : ["adjustments"],
       reasoning: delta.reasoning,
       quota,
+      trace: opts.trace,
+      downgraded: opts.downgraded,
     };
   };
 
@@ -262,29 +295,78 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
     setValue("");
     const ts = Date.now();
     const before = paramsRef.current;
-
-    // The deterministic parser is cheap and useful as a backstop in every
-    // mode. Run it unconditionally.
     const parserResult = parsePrompt(trimmed, before, statsRef.current);
 
-    // ── AI-first mode ──
-    if (mode === "ai" && isSignedIn) {
-      setMessages((m) => [...m, userMsg(ts, trimmed), thinkingMsg(ts)]);
-      const ai = await callLLM(trimmed, before, statsRef.current);
-
+    const handleAfterAICall = (
+      ai: LLMResponse,
+      ranAgents: boolean,
+      thinkingId: string,
+    ) => {
       if (ai.ok && hasDelta(ai.delta)) {
+        // The server may have downgraded an agents request to llm — when
+        // it does, this reply was actually an llm result, not agents.
+        const wasAgents = ranAgents && !ai.downgraded;
         const next = mergeDelta(before, ai.delta);
         onParams(next);
+        setQuotaState(ai.quota);
         setMessages((m) =>
-          replaceById(m, `a-${ts}`, aiAppliedMsg(ts, before, next, ai.delta, ai.quota)),
+          replaceById(
+            m,
+            thinkingId,
+            aiAppliedMsg(ts, before, next, ai.delta, ai.quota, {
+              agents: wasAgents,
+              trace: ai.trace,
+              downgraded: ai.downgraded,
+            }),
+          ),
         );
-        return;
+        return true;
       }
+      return false;
+    };
 
-      // LLM didn't help — fall back to parser result.
+    // ── Agents mode (signed-in only) ──
+    if (mode === "agents" && isSignedIn) {
+      setMessages((m) => [
+        ...m,
+        userMsg(ts, trimmed),
+        thinkingMsg(ts, "Agents thinking…"),
+      ]);
+      const ai = await callLLM(trimmed, before, statsRef.current, "agents");
+      if (handleAfterAICall(ai, true, `a-${ts}`)) return;
+
       const failPrefix =
         !ai.ok && ai.reason === "quota"
-          ? `Daily AI limit reached (${ai.quotaLimit ?? 50}/day). Falling back to keywords.`
+          ? `Daily limit reached (${ai.quotaLimit ?? DAILY_LLM_LIMIT}/day). Falling back to keywords.`
+          : !ai.ok && ai.reason === "unavailable"
+            ? "Agents unavailable — falling back to keywords."
+            : "Agents returned no usable delta — falling back to keywords.";
+
+      if (parserResult.understood.length > 0) {
+        onParams(parserResult.params);
+        const base = parserAppliedMsg(ts, before, parserResult);
+        setMessages((m) => replaceById(m, `a-${ts}`, { ...base, text: failPrefix }));
+      } else {
+        setMessages((m) =>
+          replaceById(m, `a-${ts}`, chipsMsg(ts, parserResult, trimmed, failPrefix)),
+        );
+      }
+      return;
+    }
+
+    // ── LLM mode (single-shot, signed-in only) ──
+    if (mode === "llm" && isSignedIn) {
+      setMessages((m) => [
+        ...m,
+        userMsg(ts, trimmed),
+        thinkingMsg(ts, "AI thinking…"),
+      ]);
+      const ai = await callLLM(trimmed, before, statsRef.current, "llm");
+      if (handleAfterAICall(ai, false, `a-${ts}`)) return;
+
+      const failPrefix =
+        !ai.ok && ai.reason === "quota"
+          ? `Daily limit reached (${ai.quotaLimit ?? DAILY_LLM_LIMIT}/day). Falling back to keywords.`
           : !ai.ok && ai.reason === "unavailable"
             ? "AI unavailable — falling back to keywords."
             : undefined;
@@ -303,34 +385,33 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
       return;
     }
 
-    // ── Auto mode (default) ──
+    // ── Auto mode (default) — parser-first; LLM single-shot fallback ──
     if (parserResult.understood.length > 0) {
       onParams(parserResult.params);
-      setMessages((m) => [...m, userMsg(ts, trimmed), parserAppliedMsg(ts, before, parserResult)]);
+      setMessages((m) => [
+        ...m,
+        userMsg(ts, trimmed),
+        parserAppliedMsg(ts, before, parserResult),
+      ]);
       return;
     }
 
-    // Parser found nothing. Try the LLM as fallback if available.
     if (!isSignedIn) {
       setMessages((m) => [...m, userMsg(ts, trimmed), chipsMsg(ts, parserResult, trimmed)]);
       return;
     }
 
-    setMessages((m) => [...m, userMsg(ts, trimmed), thinkingMsg(ts)]);
-    const ai = await callLLM(trimmed, before, statsRef.current);
-
-    if (ai.ok && hasDelta(ai.delta)) {
-      const next = mergeDelta(before, ai.delta);
-      onParams(next);
-      setMessages((m) =>
-        replaceById(m, `a-${ts}`, aiAppliedMsg(ts, before, next, ai.delta, ai.quota)),
-      );
-      return;
-    }
+    setMessages((m) => [
+      ...m,
+      userMsg(ts, trimmed),
+      thinkingMsg(ts, "AI thinking…"),
+    ]);
+    const ai = await callLLM(trimmed, before, statsRef.current, "llm");
+    if (handleAfterAICall(ai, false, `a-${ts}`)) return;
 
     const prefix =
       !ai.ok && ai.reason === "quota"
-        ? `Daily AI limit reached (${ai.quotaLimit ?? 50}/day).`
+        ? `Daily limit reached (${ai.quotaLimit ?? DAILY_LLM_LIMIT}/day).`
         : undefined;
     setMessages((m) => replaceById(m, `a-${ts}`, chipsMsg(ts, parserResult, trimmed, prefix)));
   };
@@ -348,8 +429,26 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
           <Sparkles className="h-4 w-4 text-[var(--color-accent)]" />
           Prompt
         </div>
-        {isSignedIn && <ModeToggle mode={mode} onChange={setModeAndPersist} />}
+        {isSignedIn && (
+          <ModeToggle
+            mode={mode}
+            onChange={setModeAndPersist}
+            agentsAffordable={agentsAffordable}
+            llmAffordable={llmAffordable}
+          />
+        )}
       </header>
+
+      {isSignedIn && (
+        <div className="flex items-center justify-between border-b border-[var(--color-border)]/40 px-4 py-1.5 text-[10px] text-[var(--color-fg-dim)]">
+          <span>{MODE_COST[mode].hint}</span>
+          {quotaState && (
+            <span>
+              Calls used today: {quotaState.used}/{quotaState.limit}
+            </span>
+          )}
+        </div>
+      )}
 
       <div
         ref={listRef}
@@ -382,9 +481,11 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder={
-              mode === "ai"
-                ? 'e.g. "give it a chilly nordic feeling"'
-                : 'e.g. "moody, blue shadows" — or type "examples"'
+              mode === "agents"
+                ? 'e.g. "moody and contemplative, golden hour feel"'
+                : mode === "llm"
+                  ? 'e.g. "give it a chilly nordic feeling"'
+                  : 'e.g. "moody, blue shadows" — or type "examples"'
             }
             className="min-w-0 flex-1 bg-transparent text-sm text-[var(--color-fg)] placeholder:text-[var(--color-fg-dim)] focus:outline-none"
           />
@@ -406,9 +507,23 @@ function replaceById(messages: Message[], id: string, next: Message): Message[] 
   return messages.map((m) => (m.id === id ? next : m));
 }
 
-function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
+function ModeToggle({
+  mode,
+  onChange,
+  agentsAffordable,
+  llmAffordable,
+}: {
+  mode: Mode;
+  onChange: (m: Mode) => void;
+  agentsAffordable: boolean;
+  llmAffordable: boolean;
+}) {
   const pillBase =
-    "rounded-full px-2.5 py-0.5 text-[11px] font-medium transition";
+    "rounded-full px-2.5 py-0.5 text-[11px] font-medium transition disabled:opacity-40 disabled:cursor-not-allowed";
+  const activeCls = "bg-[var(--color-bg-elev-3)] text-[var(--color-fg)]";
+  const idleCls =
+    "text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]";
+
   return (
     <div
       className="flex items-center gap-0.5 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-elev-2)]/60 p-0.5"
@@ -418,33 +533,81 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
       <button
         type="button"
         onClick={() => onChange("auto")}
-        className={cn(
-          pillBase,
-          mode === "auto"
-            ? "bg-[var(--color-bg-elev-3)] text-[var(--color-fg)]"
-            : "text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]",
-        )}
-        title="Keyword parser first; AI handles unknown phrases"
+        className={cn(pillBase, mode === "auto" ? activeCls : idleCls)}
+        title={MODE_COST.auto.hint}
       >
         Auto
       </button>
       <button
         type="button"
-        onClick={() => onChange("ai")}
+        onClick={() => onChange("llm")}
+        disabled={!llmAffordable}
         className={cn(
           pillBase,
           "flex items-center gap-1",
-          mode === "ai"
-            ? "bg-[var(--color-bg-elev-3)] text-[var(--color-fg)]"
-            : "text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]",
+          mode === "llm" ? activeCls : idleCls,
         )}
-        title="AI interprets first; keyword parser fallback"
+        title={
+          llmAffordable
+            ? MODE_COST.llm.hint
+            : "Out of budget — try Auto (uses parser when possible)"
+        }
       >
         <Wand2 className="h-3 w-3" />
-        AI
+        LLM
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("agents")}
+        disabled={!agentsAffordable}
+        className={cn(
+          pillBase,
+          "flex items-center gap-1",
+          mode === "agents" ? activeCls : idleCls,
+        )}
+        title={
+          agentsAffordable
+            ? MODE_COST.agents.hint
+            : "Not enough budget for Agents — try LLM (1 call) or Auto"
+        }
+      >
+        <Bot className="h-3 w-3" />
+        Agents
       </button>
     </div>
   );
+}
+
+function traceToLines(trace: TraceEntry[]): string[] {
+  const out: string[] = [];
+  for (const t of trace) {
+    switch (t.node) {
+      case "emotionAnalyst":
+        out.push(t.ok ? "🧠 Analyzed emotion" : `🧠 Emotion analyst failed (${t.error ?? "unknown"})`);
+        break;
+      case "imageMoodAnalyst":
+        out.push(t.ok ? "🖼️ Read image" : `🖼️ Image analyst failed (${t.error ?? "unknown"})`);
+        break;
+      case "actionAgent.tool":
+        if (t.name === "applyPreset" && t.ok) {
+          const preset = (t.args as { name?: string })?.name ?? "preset";
+          out.push(`📚 Considered preset '${preset}'`);
+        } else {
+          out.push(`🔧 Tool ${t.name} ${t.ok ? "ok" : "failed"}`);
+        }
+        break;
+      case "actionAgent.finalize":
+        if (t.ok) out.push("✨ Composed delta");
+        break;
+      case "fallback":
+        out.push(`↩ Fell back to single-shot (${t.reason})`);
+        break;
+      // actionAgent.callLLM is internal-only — collapsed into other traces.
+      default:
+        break;
+    }
+  }
+  return out;
 }
 
 function AssistantMessage({
@@ -458,7 +621,7 @@ function AssistantMessage({
     return (
       <div className="flex items-center gap-2 text-[var(--color-fg-muted)]">
         <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--color-accent)]" />
-        <span className="text-xs">AI thinking…</span>
+        <span className="text-xs">{m.thinkingLabel ?? "Thinking…"}</span>
       </div>
     );
   }
@@ -468,16 +631,35 @@ function AssistantMessage({
   const showChipsHeader = !showApplied && !showText && m.tryChips && m.tryChips.length > 0;
   const showSilentFallback =
     !showApplied && !showText && (!m.tryChips || m.tryChips.length === 0);
+  const traceLines = m.trace ? traceToLines(m.trace) : [];
 
   return (
     <div className="max-w-[95%] space-y-1.5">
       {showText && <div className="text-[var(--color-fg-muted)]">{m.text}</div>}
+      {traceLines.length > 0 && (
+        <div className="space-y-0.5 text-[10px] text-[var(--color-fg-dim)]">
+          {traceLines.map((line, i) => (
+            <div key={i}>{line}</div>
+          ))}
+        </div>
+      )}
+      {m.downgraded && (
+        <div className="text-[10px] italic text-[var(--color-fg-dim)]">
+          Budget low — used LLM mode instead of Agents.
+        </div>
+      )}
       {showApplied && (
         <div className="text-[var(--color-fg-muted)]">
+          {m.agents && (
+            <span className="mr-1.5 inline-flex items-center gap-1 rounded-full border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-1.5 py-0.5 align-middle text-[10px] font-medium text-[var(--color-accent)]">
+              <Bot className="h-2.5 w-2.5" />
+              Agents
+            </span>
+          )}
           {m.ai && (
             <span className="mr-1.5 inline-flex items-center gap-1 rounded-full border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-1.5 py-0.5 align-middle text-[10px] font-medium text-[var(--color-accent)]">
               <Wand2 className="h-2.5 w-2.5" />
-              AI
+              LLM
             </span>
           )}
           <span className="text-[var(--color-fg-dim)]">applied:</span>{" "}
@@ -496,16 +678,14 @@ function AssistantMessage({
         </div>
       )}
       {m.reasoning && (
-        <div className="text-xs italic text-[var(--color-fg-dim)]">
-          {m.reasoning}
-        </div>
+        <div className="text-xs italic text-[var(--color-fg-dim)]">{m.reasoning}</div>
       )}
       {m.hint && (
         <div className="text-xs italic text-[var(--color-fg-dim)]">→ {m.hint}</div>
       )}
       {m.quota && (
         <div className="text-[10px] text-[var(--color-fg-dim)]">
-          AI used today: {m.quota.used}/{m.quota.limit}
+          Calls used today: {m.quota.used}/{m.quota.limit}
         </div>
       )}
       {m.tryChips && m.tryChips.length > 0 && (
