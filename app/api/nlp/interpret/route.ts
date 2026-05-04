@@ -27,6 +27,13 @@ import type { GradingParams } from "@/lib/grading/params";
 import type { ImageStats } from "@/lib/grading/imageStats";
 import type { TraceEntry } from "@/lib/nlp/agent/state";
 
+// Vercel default Route Handler timeout is 10s on the Hobby tier. Agents
+// mode runs 3-4 sequential Groq calls (A1 ‖ A2 → A3, ±applyPreset) and
+// occasionally bumps against that ceiling under cold starts or slow
+// upstream. 60s gives us comfortable headroom; LLM mode finishes in 1s
+// either way so the higher cap is harmless.
+export const maxDuration = 60;
+
 const Body = z.object({
   prompt: z.string().min(1).max(500),
   current: z.unknown(),

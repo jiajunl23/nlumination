@@ -237,6 +237,7 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
     result: ParseResult,
     raw: string,
     prefix?: string,
+    trace?: TraceEntry[],
   ): Message => {
     const tryChips = suggestForUnmatched(
       result.unmatched.length ? result.unmatched : [raw],
@@ -246,6 +247,7 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
       role: "assistant",
       text: prefix,
       tryChips: tryChips.length ? tryChips : undefined,
+      trace,
     };
   };
 
@@ -342,13 +344,27 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
             ? "Agents unavailable — falling back to keywords."
             : "Agents returned no usable delta — falling back to keywords.";
 
+      // Surface partial trace (analyst breadcrumbs) even when the
+      // pipeline fell over — gives the user some idea of what was
+      // attempted instead of a bare "unavailable".
+      const failTrace = !ai.ok ? ai.trace : undefined;
+
       if (parserResult.understood.length > 0) {
         onParams(parserResult.params);
-        const base = parserAppliedMsg(ts, before, parserResult);
-        setMessages((m) => replaceById(m, `a-${ts}`, { ...base, text: failPrefix }));
+        const base = parserAppliedMsg(ts, before, parserResult) as Extract<
+          Message,
+          { role: "assistant" }
+        >;
+        setMessages((m) =>
+          replaceById(m, `a-${ts}`, { ...base, text: failPrefix, trace: failTrace }),
+        );
       } else {
         setMessages((m) =>
-          replaceById(m, `a-${ts}`, chipsMsg(ts, parserResult, trimmed, failPrefix)),
+          replaceById(
+            m,
+            `a-${ts}`,
+            chipsMsg(ts, parserResult, trimmed, failPrefix, failTrace),
+          ),
         );
       }
       return;
