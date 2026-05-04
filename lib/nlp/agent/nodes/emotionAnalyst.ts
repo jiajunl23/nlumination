@@ -55,10 +55,16 @@ export async function emotionAnalyst(state: AgentState): Promise<void> {
     });
   } catch (err) {
     if (err instanceof OpenAI.APIError) {
+      const errBody = (err as { error?: unknown }).error as
+        | { failed_generation?: string }
+        | undefined;
       console.error(
         "[emotionAnalyst] Groq APIError:",
         err.status,
         err.message,
+        errBody?.failed_generation
+          ? `\nfailed_generation: ${errBody.failed_generation.slice(0, 800)}`
+          : "",
       );
     } else {
       console.error("[emotionAnalyst] error:", err);

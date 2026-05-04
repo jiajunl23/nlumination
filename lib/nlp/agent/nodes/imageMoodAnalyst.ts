@@ -61,10 +61,19 @@ export async function imageMoodAnalyst(state: AgentState): Promise<void> {
     });
   } catch (err) {
     if (err instanceof OpenAI.APIError) {
+      // Capture failed_generation when Groq's JSON-schema validator
+      // rejects — it's the only way to see what the model actually
+      // emitted before Groq dropped it on the floor.
+      const errBody = (err as { error?: unknown }).error as
+        | { failed_generation?: string }
+        | undefined;
       console.error(
         "[imageMoodAnalyst] Groq APIError:",
         err.status,
         err.message,
+        errBody?.failed_generation
+          ? `\nfailed_generation: ${errBody.failed_generation.slice(0, 800)}`
+          : "",
       );
     } else {
       console.error("[imageMoodAnalyst] error:", err);
