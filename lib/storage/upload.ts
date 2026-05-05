@@ -1,7 +1,7 @@
 /**
  * Client-side upload orchestration.
  *
- *   1. Re-encode the source ImageBitmap into a JPEG (cap long edge at 4096 px).
+ *   1. Either re-encode the source ImageBitmap or accept a pre-rendered Blob.
  *   2. Ask the server for a Cloudinary signed-upload payload.
  *   3. POST the file directly to Cloudinary.
  *   4. Tell our server to record the photo + initial edit.
@@ -30,6 +30,39 @@ export async function uploadAndCreatePhoto(args: {
 
   const sign = await signUpload();
   const cloud = await postToCloudinary(sign.uploadUrl, sign.params, blob);
+
+  const res = await fetch("/api/photos", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      publicId: cloud.public_id,
+      filename: args.filename,
+      width: cloud.width,
+      height: cloud.height,
+      params: args.params,
+      prompt: args.prompt,
+    }),
+  });
+  if (!res.ok) throw new Error(`POST /api/photos → ${res.status}`);
+  return await res.json();
+}
+
+/**
+ * Upload a Blob that already has the edit baked in (rendered from the
+ * WebGL canvas). The DB row is stored with `DEFAULT_PARAMS` so the
+ * gallery's WebGL pipeline renders it as a no-op — what you see in the
+ * card is the pixels that were uploaded, not a re-application of params.
+ */
+export async function uploadRenderedAsPhoto(args: {
+  blob: Blob;
+  filename: string;
+  width: number;
+  height: number;
+  params: GradingParams;
+  prompt: string | null;
+}): Promise<{ photo: SavedPhoto }> {
+  const sign = await signUpload();
+  const cloud = await postToCloudinary(sign.uploadUrl, sign.params, args.blob);
 
   const res = await fetch("/api/photos", {
     method: "POST",

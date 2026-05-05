@@ -18,7 +18,10 @@ import { BeforeAfterToggle } from "./BeforeAfterToggle";
 import { ChatPanel } from "./ChatPanel";
 import { DEFAULT_PARAMS, type GradingParams } from "@/lib/grading/params";
 import { computeImageStats, type ImageStats } from "@/lib/grading/imageStats";
-import { saveEdit, uploadAndCreatePhoto } from "@/lib/storage/upload";
+import {
+  uploadAndCreatePhoto,
+  uploadRenderedAsPhoto,
+} from "@/lib/storage/upload";
 import { cn } from "@/lib/utils";
 
 export function EditorRoot() {
@@ -219,28 +222,53 @@ export function EditorRoot() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasImage, isSignedIn, saving, exporting, photoId, params]);
 
+  // Each save is a *new* gallery entry with the edit baked into the
+  // pixels. Render the canvas → JPEG → upload as its own photo. The DB
+  // row stores DEFAULT_PARAMS so PhotoCard's WebGL pipeline renders it
+  // as a no-op (no double-application). Original photos saved before
+  // this change keep their stored params and continue rendering live.
   const onSave = async () => {
-    if (!source || !filename) return;
+    if (!source || !filename || !canvasRef.current) return;
     setSaving(true);
     setError(null);
     setInfo(null);
     try {
-      if (photoId) {
-        await saveEdit({ photoId, params, prompt: null });
-        setInfo("Saved");
-      } else {
+      let blob: Blob;
+      try {
+        blob = await canvasRef.current.exportBlob("image/jpeg", 0.92);
+      } catch {
+        // Fallback: encode the source ImageBitmap (raw, no edits). Should
+        // be rare — only fires if the WebGL canvas isn't ready.
         const result = await uploadAndCreatePhoto({
           source,
           filename,
           params,
           prompt: null,
         });
-        setPhotoId(result.photo.id);
-        const url = new URL(window.location.href);
-        url.searchParams.set("photoId", result.photo.id);
-        router.replace(url.pathname + url.search);
         setInfo("Added to gallery");
+        if (!photoId) {
+          setPhotoId(result.photo.id);
+          const url = new URL(window.location.href);
+          url.searchParams.set("photoId", result.photo.id);
+          router.replace(url.pathname + url.search);
+        }
+        return;
       }
+
+      const baseName = filename.replace(/\.[^.]+$/, "");
+      const versionName = `${baseName}-edit-${Date.now()}.jpg`;
+      const result = await uploadRenderedAsPhoto({
+        blob,
+        filename: versionName,
+        width: source.width,
+        height: source.height,
+        params: DEFAULT_PARAMS,
+        prompt: null,
+      });
+      setInfo("Saved new version to gallery");
+      // Don't redirect — keep user in the current editing session so
+      // they can keep iterating and save more versions.
+      void result;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -372,7 +400,7 @@ export function EditorRoot() {
               ) : (
                 <Cloud className="h-4 w-4" />
               )}
-              {saving ? "Saving…" : photoId ? "Save edit" : "Save to gallery"}
+              {saving ? "Saving…" : "Save to gallery"}
             </button>
           )}
           <button
