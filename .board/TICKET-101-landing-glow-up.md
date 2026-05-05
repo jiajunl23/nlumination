@@ -87,5 +87,82 @@ Start dev server (`pnpm run dev`), open `http://localhost:3000`.
 
 ## Status
 
-(Fill in after work is done: what you did, what you skipped and why,
-files touched, any judgment calls.)
+**Done.** Branch `feature/ticket-101-landing-glow-up`, 3 commits.
+
+### What I did
+
+- Added `app/landing.module.css` with three classes of motion (entry,
+  ambient, hover) instead of touching `globals.css`. Reduced-motion
+  block disables them all.
+- Added `components/landing/ModeShowcase.tsx` (server component) that
+  renders the three Auto / LLM / Agents cards. Pulls label + hint
+  straight from `MODE_COST` in `lib/nlp/modes.ts` so editor copy and
+  landing copy stay in sync. Per-mode example prompts are landing-only.
+- Added `components/landing/AnimatedPromptTicker.tsx` (client) — small
+  3s-interval rotator inside a fake-input pill in the hero so the page
+  has continuous motion above the fold.
+- Rewrote `app/page.tsx` to wire it all together: staged entry cascade
+  via `--d` delay var, drifting gradient on the hero highlight word,
+  new accent-gradient primary CTA (`Wand2` icon, `ctaPulse`), animated
+  prompt ticker, original feature cards (now with `cardFX` hover), the
+  new ModeShowcase section, and a tail CTA.
+
+### Acceptance criteria check
+
+1. New mode-showcase section with icon + label + hint + 3 examples per
+   mode — done.
+2. Three animation types — entry (`fadeUpAnim`/`blurInAnim`), continuous
+   (`gradientDrift`/`ctaPulse`), hover (`cardFX`/`modeCardFX`/
+   `primaryCtaFX`) — done.
+3. Three button styles present — accent-gradient primary CTA,
+   white-pill, ghost-border — done.
+4. Mobile (375) responsive — hero CTAs stack on `<sm`, mode grid stacks
+   to single column, page padding `px-6 sm:px-8`. Verified via class
+   review (didn't run a real browser).
+5. `pnpm run typecheck` passes (and ran inside the pre-commit hook for
+   each commit).
+6. No `app/globals.css` or `app/layout.tsx` changes — verified with
+   `git diff main..HEAD --stat`.
+
+### Files touched
+
+- `app/page.tsx` — rewritten
+- `app/landing.module.css` — new
+- `components/landing/ModeShowcase.tsx` — new
+- `components/landing/AnimatedPromptTicker.tsx` — new
+
+### Judgment calls
+
+- **Server vs client split**: kept `page.tsx` and `ModeShowcase` as
+  server components; only the prompt ticker is `"use client"`. Entry
+  animations are pure CSS keyframes so they don't need a scroll
+  observer or hydration.
+- **Used CSS-var delays (`--d`) inline** instead of generating dozens
+  of `.delay-100ms` utility classes — keeps the module file small and
+  lets each call site own its timing.
+- **Lucide icons for mode cards**: `Zap` (Auto = fast), `Sparkles`
+  (LLM = magic), `Bot` (Agents = multi-agent). Matches the editor's
+  visual language.
+- **Example prompts are landing-only copy**, not pulled from
+  `MODE_COST` — `MODE_COST.hint` is one terse line meant for a
+  tooltip; landing visitors need richer examples. If we ever want
+  these to live in `lib/`, easy to promote to `MODE_COST.examples`.
+- **Tail CTA added** — the page felt unfinished without a closing
+  action after the long mode showcase. Reuses the primary gradient
+  CTA style minus the pulse so it doesn't fight the hero CTA for
+  attention.
+
+### Couldn't verify
+
+- **No live browser pass.** Did not run `pnpm run dev` and look at it
+  in a browser at 375 / 1440 widths — typecheck passes and class names
+  match Tailwind v4 + the existing palette, but visual review is on
+  the orchestrator. Specifically worth eyeballing: the ticker's
+  absolute-positioned cycling lines in the hero pill (positioning math
+  assumes `h-5` line height), and the accent-glow CTA pulse intensity
+  against the `bg-waves` background.
+- **No global keyframes were needed** — everything fit in the page
+  module, so `app/globals.css` is untouched as required.
+- **Lint** has 7 pre-existing errors in `components/editor/*` files I
+  didn't touch (TICKET-102 territory). My new files lint clean. The
+  pre-commit hook only runs typecheck, so commits went through.
