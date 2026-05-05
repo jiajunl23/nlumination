@@ -26,49 +26,49 @@ import {
 // mergeDelta — ranges stay documented in the JSON Schema mirror below.
 const num = () => z.number().optional();
 
-const HslDeltaSchema = z
-  .object({
-    hue: num(),
-    saturation: num(),
-    luminance: num(),
-  })
-  .strict();
+// Permissive on extra keys (default `.strip()`, not `.strict()`):
+// without strict json_schema enforcement at the wire, gpt-oss-20b
+// occasionally invents fields like `hsl.cyan` (synonym for `aqua` —
+// not in our 8-band taxonomy). `.strict()` would reject the whole
+// response over a single unrecognized key; `.strip()` silently drops
+// it and the rest of the delta still applies.
+const HslDeltaSchema = z.object({
+  hue: num(),
+  saturation: num(),
+  luminance: num(),
+});
 
-export const LLMDelta = z
-  .object({
-    temperature: num(),
-    tint: num(),
-    exposure: num(),
-    contrast: num(),
-    highlights: num(),
-    shadows: num(),
-    whites: num(),
-    blacks: num(),
-    vibrance: num(),
-    saturation: num(),
-    clarity: num(),
-    hsl: z
-      .object(
-        Object.fromEntries(
-          HUE_BANDS.map((b) => [b, HslDeltaSchema.optional()]),
-        ) as Record<HueBand, z.ZodOptional<typeof HslDeltaSchema>>,
-      )
-      .strict()
-      .optional(),
-    splitToning: z
-      .object({
-        shadowHue: num(),
-        shadowSaturation: num(),
-        highlightHue: num(),
-        highlightSaturation: num(),
-        balance: num(),
-      })
-      .strict()
-      .optional(),
-    vignetteAmount: num(),
-    reasoning: z.string().max(160).optional(),
-  })
-  .strict();
+export const LLMDelta = z.object({
+  temperature: num(),
+  tint: num(),
+  exposure: num(),
+  contrast: num(),
+  highlights: num(),
+  shadows: num(),
+  whites: num(),
+  blacks: num(),
+  vibrance: num(),
+  saturation: num(),
+  clarity: num(),
+  hsl: z
+    .object(
+      Object.fromEntries(
+        HUE_BANDS.map((b) => [b, HslDeltaSchema.optional()]),
+      ) as Record<HueBand, z.ZodOptional<typeof HslDeltaSchema>>,
+    )
+    .optional(),
+  splitToning: z
+    .object({
+      shadowHue: num(),
+      shadowSaturation: num(),
+      highlightHue: num(),
+      highlightSaturation: num(),
+      balance: num(),
+    })
+    .optional(),
+  vignetteAmount: num(),
+  reasoning: z.string().max(160).optional(),
+});
 
 export type LLMDeltaT = z.infer<typeof LLMDelta>;
 

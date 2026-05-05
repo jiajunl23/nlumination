@@ -19,6 +19,10 @@ purple|magenta}.{hue,saturation,luminance}; splitToning.{shadowHue 0..360,
 shadowSaturation 0..100, highlightHue 0..360, highlightSaturation 0..100,
 balance -100..100}; reasoning (<=160 chars).
 
+hsl bands are EXACTLY these 8: red, orange, yellow, green, aqua, blue,
+purple, magenta. Use aqua (NOT cyan), magenta (NOT pink) — synonyms get
+silently dropped.
+
 Example — "polaroid from the 80s":
 {"contrast":-10,"saturation":-15,"blacks":15,"whites":-10,"temperature":15,
 "splitToning":{"shadowHue":40,"shadowSaturation":15,"highlightHue":210,
