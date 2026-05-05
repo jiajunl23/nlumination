@@ -584,3 +584,14 @@ A small follow-up landed on top — the user looked at the merged gallery and de
 The agents-mode NL pipeline (Week 2 part 2) was an *interpreter* of user intent inside one HTTP request. This week's experiment is a *delegator* of engineering work across multiple wall-clock minutes. Different problem, similar primitive: structured-state shared between independent processes that read it, mutate it, write it back.
 
 The three UI surfaces are now substantially nicer than they were 30 minutes ago, and I (the orchestrator) didn't write the implementing code for any of them. The infrastructure that enables this — pre-commit gate, CI gate, `.board/`, worktree isolation, the ticket-file convention — is now reusable for every future round.
+
+## Hot-fix — action agent tolerant of band-name synonyms (PR #5)
+
+A user prompt like "cyberpunk and holiday" tripped a small but expensive bug: A3 emitted `hsl.cyan` (a synonym for our `aqua` band — `cyan` isn't in the 8-band taxonomy). Zod's `.strict()` on `LLMDelta` rejected the **entire** response over that one unrecognized key, the route logged `actionAgent_failed`, and we burned a second LLM call on the single-shot fallback when the rest of the agent's output was perfectly usable.
+
+Two complementary fixes landed in `74b4622`:
+
+- **Schema permissiveness**. `LLMDelta`, the nested `hsl`, `splitToning`, and `HslDeltaSchema` all switched from `.strict()` to default `.strip()`. Without strict json-schema enforcement at the wire (the token-budget overhaul switched to `json_object` mode), the model can invent fields. `.strip()` silently drops the unknowns and the valid fields still apply. Consistent with the same "permissive at the wire, strict at the boundary" we'd already adopted for the analyst schemas.
+- **Prompt nudge**. Both the A3 and LLM-mode system prompts gained a CRITICAL line spelling out the 8 valid bands and naming `aqua` / `magenta` as the canonical choices over `cyan` / `pink` synonyms — reduces the chance the model invents in the first place.
+
+After the fix, the same prompt class ("cyberpunk and holiday", "neon teal vapourwave") composes a delta cleanly without forcing a fallback, saving the extra LLM call and the visible "Action agent failed → Fell back" message in the trace.
