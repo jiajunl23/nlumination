@@ -23,6 +23,7 @@ import {
   uploadRenderedAsPhoto,
 } from "@/lib/storage/upload";
 import { cn } from "@/lib/utils";
+import editorStyles from "./editor.module.css";
 
 export function EditorRoot() {
   const router = useRouter();
@@ -288,7 +289,14 @@ export function EditorRoot() {
         className="flex min-h-[480px] min-w-0 items-center justify-center md:sticky md:top-4 md:h-[calc(100vh-5rem)] md:max-h-[calc(100vh-5rem)]"
       >
         <div
-          className="relative flex flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elev-1)] transition-[width,height] duration-700 ease-out"
+          className={cn(
+            "relative flex flex-col overflow-hidden rounded-2xl border border-[color-mix(in_oklab,var(--color-accent)_8%,var(--color-border))] transition-[width,height] duration-700 ease-out",
+            // Frame-fit (image loaded) — keep solid so the photo border
+            // stays clean. DropZone state — gradient lets bg-waves bleed.
+            frame
+              ? "bg-[var(--color-bg-elev-1)]"
+              : editorStyles.canvasFrame,
+          )}
           style={
             frame
               ? { width: frame.w, height: frame.h }
@@ -348,11 +356,12 @@ export function EditorRoot() {
         {/* Collapsible Adjustments */}
         <section
           className={cn(
-            "flex shrink-0 flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elev-1)] transition-[height] duration-500 ease-out [will-change:height]",
+            "flex shrink-0 flex-col overflow-hidden rounded-2xl border border-[color-mix(in_oklab,var(--color-accent)_7%,var(--color-border))] transition-[height] duration-500 ease-out [will-change:height]",
+            editorStyles.panelSolid,
             adjustmentsOpen ? "h-[55vh]" : "h-12",
           )}
         >
-          <header className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)]/60 px-4 py-3">
+          <header className="flex shrink-0 items-center justify-between border-b border-[color-mix(in_oklab,var(--color-accent)_8%,var(--color-border))]/70 px-4 py-3">
             <button
               type="button"
               onClick={() => setAdjustmentsOpen((v) => !v)}
@@ -388,7 +397,13 @@ export function EditorRoot() {
         </section>
 
         {/* Save / export */}
-        <footer className="flex shrink-0 flex-col gap-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elev-1)] px-4 py-3">
+        <footer
+          className={cn(
+            "flex shrink-0 flex-col gap-2 rounded-2xl border border-[color-mix(in_oklab,var(--color-accent)_7%,var(--color-border))] px-4 py-3",
+            editorStyles.panelSolid,
+            editorStyles.footerSpotlight,
+          )}
+        >
           {isSignedIn && (
             <button
               disabled={!hasImage || saving}
