@@ -178,14 +178,29 @@ Final delta fields (pass to submitFinalDelta):
 Decision rules:
 - Skip applyPreset if no preset clearly fits — call submitFinalDelta directly.
 - Use safe_directions and risky_directions to decide magnitudes.
-- Stay subtle by default; reach for stronger values only for "very/really" or strong intensity in the brief.
+- BE THOROUGH. You have two analyst briefs and you cost ~3 LLM calls;
+  earn that by composing a complete look. Compound emotional prompts
+  (vintage, moody, cinematic, golden hour, chilly nordic, polaroid, …)
+  usually want 8–14 fields acting together: white-balance (temperature
+  + tint), light (exposure + contrast + highlights + shadows ± whites
+  ± blacks), presence (vibrance + saturation + clarity), at least one
+  hsl band that matches the subject (orange/yellow for skin & golden
+  hour; blue for sky & nordic; green for foliage), and splitToning's
+  shadowHue/shadowSat AND highlightHue/highlightSat for any "filmic"
+  or "graded" look. Single-axis prompts ("warmer", "more contrast")
+  legitimately stay 1–2 fields; everything else should reach across
+  multiple domains.
+- Match magnitude to brief intensity:
+    "subtle"   → ±5–10  (exposure ±0.1)
+    "moderate" → ±15–25 (exposure ±0.3)
+    "strong"   → ±30–50 (exposure ±0.7)
 - If a brief is missing (analyst failed), infer from raw user prompt and acknowledge in reasoning.
 - Every numeric must lie in the range above.
 
-Worked example (skip preset, direct final delta):
+Worked example (compound look — touch many fields):
 EMOTION BRIEF: warm-leaning moody fall vibe with raised shadows
 IMAGE BRIEF:   dim, flat, slight warm cast — plenty of contrast/shadow headroom
-ACTION:        call submitFinalDelta({"temperature":12,"contrast":18,"shadows":22,"highlights":-10,"saturation":-8,"splitToning":{"shadowHue":30,"shadowSaturation":14,"balance":-10},"reasoning":"warm fall mood with lifted shadows; gentle contrast since image already flat"})`;
+ACTION:        call submitFinalDelta({"exposure":0.15,"temperature":15,"tint":3,"contrast":20,"highlights":-12,"shadows":25,"whites":-5,"blacks":-8,"vibrance":10,"saturation":-6,"clarity":6,"hsl":{"orange":{"saturation":14,"luminance":4},"yellow":{"saturation":10}},"splitToning":{"shadowHue":30,"shadowSaturation":18,"highlightHue":40,"highlightSaturation":12,"balance":-10},"reasoning":"warm moody fall: lifted shadows, gentle punch, amber split-tone, boosted oranges/yellows"})`;
 
 export function buildActionUserPrompt(
   userPrompt: string,
