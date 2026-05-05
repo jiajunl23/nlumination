@@ -1,0 +1,146 @@
+/*
+ * Page-scoped animations for the landing page (TICKET-101).
+ *
+ * Lives in a CSS module instead of globals.css so it doesn't bleed into the
+ * editor / gallery routes (those are owned by other agents). Class names get
+ * hashed by Next, so we can use short semantic names here.
+ *
+ * Naming: `*Anim` for keyframe-driven, `*FX` for hover/state effects.
+ */
+
+/* --- entry animations ------------------------------------------------ */
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 16px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.fadeUpAnim {
+  opacity: 0;
+  animation: fadeUp 700ms cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+  /* delay can be tuned per-element via --d (ms) */
+  animation-delay: var(--d, 0ms);
+}
+
+@keyframes blurIn {
+  from {
+    opacity: 0;
+    filter: blur(8px);
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: scale(1);
+  }
+}
+
+.blurInAnim {
+  opacity: 0;
+  animation: blurIn 900ms cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+  animation-delay: var(--d, 0ms);
+}
+
+/* --- continuous ambient ---------------------------------------------- */
+
+/* Animated gradient sweep on the headline highlight word — the gradient
+   keeps drifting so the page never feels static. Pairs with a 200% bg-size
+   to give the sweep room to travel. */
+@keyframes gradientDrift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.gradientDrift {
+  background-size: 200% 200%;
+  animation: gradientDrift 8s ease-in-out infinite;
+}
+
+/* Soft pulse for the primary CTA — accent glow that breathes. */
+@keyframes ctaPulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 0 color-mix(in oklab, var(--color-accent-glow) 55%, transparent),
+      0 8px 32px -8px color-mix(in oklab, var(--color-magenta) 60%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 6px color-mix(in oklab, var(--color-accent-glow) 0%, transparent),
+      0 8px 40px -6px color-mix(in oklab, var(--color-magenta) 75%, transparent);
+  }
+}
+
+.ctaPulse {
+  animation: ctaPulse 3.4s ease-in-out infinite;
+}
+
+/* --- hover micro-interactions ---------------------------------------- */
+
+/* Feature card lift + accent border glow on hover. The translate is 1px
+   because >1px makes neighbouring cards feel jittery in a 3-up grid. */
+.cardFX {
+  transition:
+    transform 220ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    border-color 220ms ease,
+    box-shadow 260ms ease,
+    background-color 220ms ease;
+}
+.cardFX:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px -16px color-mix(in oklab, var(--color-accent-glow) 50%, transparent);
+}
+
+/* Mode card — bigger lift + accent ring, since these are the showcase. */
+.modeCardFX {
+  transition:
+    transform 260ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    border-color 220ms ease,
+    box-shadow 260ms ease;
+  will-change: transform;
+}
+.modeCardFX:hover {
+  transform: translateY(-3px);
+}
+
+/* Primary gradient CTA — slight scale + shifted gradient on hover. */
+.primaryCtaFX {
+  background-size: 200% 200%;
+  background-position: 0% 50%;
+  transition:
+    background-position 360ms ease,
+    transform 180ms ease,
+    box-shadow 220ms ease;
+}
+.primaryCtaFX:hover {
+  background-position: 100% 50%;
+  transform: translateY(-1px) scale(1.02);
+}
+
+/* --- reduced motion -------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .fadeUpAnim,
+  .blurInAnim {
+    animation: none;
+    opacity: 1;
+  }
+  .gradientDrift,
+  .ctaPulse {
+    animation: none;
+  }
+  .cardFX:hover,
+  .modeCardFX:hover,
+  .primaryCtaFX:hover {
+    transform: none;
+  }
+}
