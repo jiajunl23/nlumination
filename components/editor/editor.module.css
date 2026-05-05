@@ -1,0 +1,80 @@
+/* Editor-only cosmetic surfaces. Restraint is the rule: each effect
+ * exists to let the shared `.bg-waves` ambient (defined in globals.css)
+ * peek through opaque editor panels — *never* to compete with the
+ * photo for attention. If you find yourself adding hue or motion here,
+ * reconsider. */
+
+/* Translucent panel surface. ~70% of bg-elev-1 lets the orange/magenta
+ * blobs of `.bg-waves` register as a faint warmth without washing out
+ * panel content. backdrop-filter softens whatever lies behind. */
+.panel {
+  background: color-mix(in oklab, var(--color-bg-elev-1) 70%, transparent);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+}
+
+/* Slightly more solid variant for surfaces that house dense controls
+ * (slider panel, save/export footer) — too much transparency under
+ * sliders gets visually noisy. */
+.panelSolid {
+  background: color-mix(in oklab, var(--color-bg-elev-1) 86%, transparent);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+}
+
+/* Canvas pane surround. The <canvas> element itself stays black — the
+ * editing context demands a neutral viewing field. This gradient only
+ * applies to the *frame* around the image, picked up only when the
+ * frame hasn't yet contracted to image dimensions (drop zone state). */
+.canvasFrame {
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--color-bg-elev-1) 88%, transparent) 0%,
+    color-mix(in oklab, var(--color-bg) 92%, transparent) 100%
+  );
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* Tinted divider — borrows ~8% of the warm accent so dividers stop
+ * reading as pure neutral grey. Keeps the editor feeling slightly warm
+ * without crossing into orange-themed territory. */
+.tintedBorder {
+  border-color: color-mix(in oklab, var(--color-accent) 8%, var(--color-border));
+}
+
+.tintedBorderSoft {
+  border-color: color-mix(in oklab, var(--color-accent) 6%, var(--color-border));
+}
+
+/* Save/export footer gets a tiny corner spotlight so it reads as the
+ * "action area" without an aggressive accent fill. */
+.footerSpotlight {
+  position: relative;
+  overflow: hidden;
+}
+.footerSpotlight::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      120% 120% at 100% 0%,
+      color-mix(in oklab, var(--color-accent) 10%, transparent) 0%,
+      transparent 55%
+    );
+  pointer-events: none;
+  z-index: 0;
+}
+.footerSpotlight > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Subtle inner highlight on translucent panels — gives a faint top
+ * edge that catches the eye without a hard border. */
+.innerLift {
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--color-fg) 4%, transparent),
+    inset 0 0 0 1px color-mix(in oklab, var(--color-accent) 4%, transparent);
+}

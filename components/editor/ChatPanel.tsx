@@ -19,6 +19,7 @@ import type { ParseResult } from "@/lib/nlp/types";
 import type { GradingParams } from "@/lib/grading/params";
 import type { ImageStats } from "@/lib/grading/imageStats";
 import { cn } from "@/lib/utils";
+import editorStyles from "./editor.module.css";
 
 type ExampleChip = { phrase: string; description: string };
 
@@ -436,11 +437,12 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
   return (
     <div
       className={cn(
-        "flex min-h-0 flex-col rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elev-1)]",
+        "flex min-h-0 flex-col rounded-2xl border border-[color-mix(in_oklab,var(--color-accent)_8%,var(--color-border))]",
+        editorStyles.panel,
         className,
       )}
     >
-      <header className="flex items-center justify-between gap-2 border-b border-[var(--color-border)]/60 px-4 py-3 text-sm font-medium text-[var(--color-fg)]">
+      <header className="flex items-center justify-between gap-2 border-b border-[color-mix(in_oklab,var(--color-accent)_8%,var(--color-border))]/70 px-4 py-3 text-sm font-medium text-[var(--color-fg)]">
         <div className="flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-[var(--color-accent)]" />
           Prompt
@@ -484,7 +486,7 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
         )}
       </div>
 
-      <div className="border-t border-[var(--color-border)]/60 p-3">
+      <div className="border-t border-[color-mix(in_oklab,var(--color-accent)_8%,var(--color-border))]/70 p-3">
         <form
           onSubmit={(e) => {
             e.preventDefault();
