@@ -23,8 +23,6 @@ worktree without our chat context.
 
 ## Active tickets
 
-| ID         | Title                                | Status     |
-| ---------- | ------------------------------------ | ---------- |
-| TICKET-001 | Tone curve UI polish                 | pending    |
-| TICKET-002 | Bring-your-own Groq API key          | pending    |
-| TICKET-003 | `/api/health` + `/status` diagnostics | pending    |
+| ID  | Title | Status |
+| --- | ----- | ------ |
+| —   | (none yet — add `TICKET-NNN-<slug>.md` files here when assigning work) | — |
