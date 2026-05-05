@@ -8,7 +8,7 @@ import { SignInTrigger } from "@/components/auth/SignInTrigger";
 export default function EditorPage() {
   return (
     <div className="flex flex-1 flex-col">
-      <header className="flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-bg-elev-1)] px-6 py-3">
+      <header className="flex items-center justify-between border-b border-[color-mix(in_oklab,var(--color-accent)_6%,var(--color-border))] bg-[color-mix(in_oklab,var(--color-bg-elev-1)_72%,transparent)] px-6 py-3 backdrop-blur-md">
         <Link
           href="/"
           className="bg-gradient-to-r from-[var(--color-accent)] via-[var(--color-accent-glow)] to-[var(--color-magenta)] bg-clip-text text-base font-semibold leading-none tracking-tight text-transparent transition hover:opacity-90"

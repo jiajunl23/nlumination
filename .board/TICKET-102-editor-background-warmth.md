@@ -96,4 +96,64 @@ load the sample image, and:
 
 ## Status
 
-(Fill in after work is done.)
+Done — branch `feature/ticket-102-editor-bg-warmth`.
+
+### Approach
+
+Added `components/editor/editor.module.css` with five small reusable
+classes — `.panel` / `.panelSolid` (translucent surfaces with
+`backdrop-filter: blur(14px) saturate(140%)`), `.canvasFrame` (subtle
+135° gradient for the DropZone-state frame surround), `.tintedBorder`
+helpers, and `.footerSpotlight` (a 120% radial accent at top-right of
+the Save/Export footer). All values use `color-mix(in oklab, …)` so
+they respect existing theme tokens.
+
+### Where the warmth lives
+
+- **`app/editor/page.tsx`** — header now uses
+  `bg-[color-mix(...)_72%]` + `backdrop-blur-md` + 6%-accent-tinted
+  bottom border. The `.bg-waves` orange blob now reads through the
+  top bar.
+- **`components/editor/EditorRoot.tsx`** —
+  - Right-column ChatPanel, Adjustments collapsible, and Save/Export
+    footer are all translucent (`.panel` / `.panelSolid`) so the
+    magenta+orange ambient bleeds through.
+  - Footer gets `.footerSpotlight` for a faint corner glow.
+  - Canvas frame surround uses `.canvasFrame` *only when no image is
+    loaded* (DropZone state). Once `frame` is set the frame stays a
+    solid bg-elev-1 so the photo's border is clean.
+  - All panel borders carry a 7-8% accent tinge.
+- **`components/editor/ChatPanel.tsx`** — outer container surface +
+  internal divider tints. No message-rendering / toggle / trace edits.
+
+### Restraint calls
+
+- **SliderPanel.tsx** was in scope but I left it untouched: every
+  `Section` it contains is in the do-not-touch list, and the slider
+  area sits inside the Adjustments collapsible whose surface is
+  already tinted from EditorRoot. Tweaking SliderPanel further would
+  have only added noise to dense controls.
+- **Canvas.tsx** intentionally untouched — the WebGL `<canvas>` must
+  stay a clean black field (acceptance criterion #3).
+- Translucency caps at ~70-86% (not 50%) — anywhere lower starts
+  fighting the photo for attention when the image dominates the view.
+
+### Verification
+
+- `pnpm run typecheck` passes (pre-commit hook ran on each commit).
+- Verified at desktop 1440×900 and mobile 375×812 with playwright —
+  layout pixel-identical to before, `.bg-waves` clearly perceptible
+  through right-column panels (magenta blob bottom-right, orange top
+  bar), photo dominates when loaded, no interaction regressions.
+
+### Commits
+
+1. `a7f1afc` — translucent ChatPanel + editor header surfaces (adds
+   `editor.module.css`).
+2. `e60b08e` — translucent Adjustments + Save panels, gradient drop
+   frame.
+3. `<status-commit>` — this Status update.
+
+### Blockers
+
+None.
