@@ -1,22 +1,17 @@
 "use client";
 
 /**
- * Masonry gallery with a featured-first hero card.
+ * Masonry gallery — every card is the same uniform size in its column.
  *
- * Layout decisions (TICKET-103):
+ * Layout decisions:
  *  - Masonry via CSS multi-column (`column-count` in gallery.module.css)
  *    so portrait + landscape thumbs pack tightly without gaps. We rely
  *    on `break-inside: avoid` on each card.
- *  - The most recent photo (the first in `initial`, since the page
- *    queries by `desc(createdAt)`) gets a "featured" treatment — full
- *    width above the masonry on every breakpoint, with a gradient
- *    border and shimmer badge.
+ *  - No featured-first hero — the most recent photo packs into the
+ *    masonry with everyone else (the user prefers uniform sizing over
+ *    a giant hero card).
  *  - Empty state has its own illustrative orb (see gallery.module.css)
  *    plus a primary CTA to the editor.
- *
- * Contract preserved from the previous version:
- *  - Photo type is unchanged.
- *  - useState + onDelete optimistic update is unchanged.
  */
 import { useState } from "react";
 import Link from "next/link";
@@ -85,10 +80,6 @@ export function GalleryGrid({ initial }: { initial: Photo[] }) {
     );
   }
 
-  // The page query orders by createdAt desc — the freshest photo is
-  // index 0, which becomes the hero. The rest flow into the masonry.
-  const [hero, ...rest] = photos;
-
   return (
     <div>
       {error && (
@@ -100,21 +91,11 @@ export function GalleryGrid({ initial }: { initial: Photo[] }) {
         </div>
       )}
 
-      {/* Featured hero card — uses the same PhotoCard component with the
-          `featured` flag. Wrapped in its own block so the gradient
-          border + shadow show up unclipped (masonry's break-inside
-          rules can fight wide cards). */}
-      <div className="mb-6">
-        <PhotoCard {...hero} featured onDelete={onDelete} />
+      <div className={styles.masonry}>
+        {photos.map((p) => (
+          <PhotoCard key={p.id} {...p} onDelete={onDelete} />
+        ))}
       </div>
-
-      {rest.length > 0 && (
-        <div className={styles.masonry}>
-          {rest.map((p) => (
-            <PhotoCard key={p.id} {...p} onDelete={onDelete} />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
