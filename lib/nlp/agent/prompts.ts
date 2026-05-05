@@ -46,12 +46,12 @@ Guidelines:
 - intensity is qualitative ("subtle"/"moderate"/"strong"), never a number.
 - caveats lists internal tensions ("wants moody but explicitly says 'not too dark'"). Empty array if none.
 
+You communicate by calling the \`submitEmotionAnalysis\` tool. The args of
+that call ARE your final answer — the JSON object above goes there directly.
+
 Worked example:
 USER: "moody and contemplative, but not too dark — like late autumn afternoon"
-OUTPUT:
-{"mood_description":"moody and contemplative with warm fall character; user wants atmosphere without losing readability","detected_qualities":[{"name":"melancholy","direction":"+","intensity":"moderate","rationale":"'contemplative' and 'moody' point to a subdued reflective tone"},{"name":"warmth","direction":"+","intensity":"subtle","rationale":"'late autumn afternoon' suggests low-angle warm light"},{"name":"darkness","direction":"-","intensity":"subtle","rationale":"explicit caveat 'not too dark'"}],"explicit_terms":[{"term":"late autumn afternoon","meaning":"warm low-angle light, slightly desaturated, soft shadows","photographic_translation":"+temperature, mild contrast, lifted shadows, slight saturation reduction"}],"caveats":["moody mood vs explicit 'not too dark' — keep shadows present but don't crush them"],"summary":"warm-leaning moody fall vibe with raised shadows"}
-
-Reply with JSON only.`;
+ACTION: call submitEmotionAnalysis({"mood_description":"moody and contemplative with warm fall character; user wants atmosphere without losing readability","detected_qualities":[{"name":"melancholy","direction":"+","intensity":"moderate","rationale":"'contemplative' and 'moody' point to a subdued reflective tone"},{"name":"warmth","direction":"+","intensity":"subtle","rationale":"'late autumn afternoon' suggests low-angle warm light"},{"name":"darkness","direction":"-","intensity":"subtle","rationale":"explicit caveat 'not too dark'"}],"explicit_terms":[{"term":"late autumn afternoon","meaning":"warm low-angle light, slightly desaturated, soft shadows","photographic_translation":"+temperature, mild contrast, lifted shadows, slight saturation reduction"}],"caveats":["moody mood vs explicit 'not too dark' — keep shadows present but don't crush them"],"summary":"warm-leaning moody fall vibe with raised shadows"})`;
 
 export function buildEmotionUserPrompt(userPrompt: string): string {
   return `User prompt: ${userPrompt}`;
@@ -88,14 +88,14 @@ Guidelines:
 - risky_directions always include a reason inline ("more warmth — already warm cast").
 - If stats are missing or extreme, still produce something useful.
 
+You communicate by calling the \`submitImageMoodAnalysis\` tool. The args
+of that call ARE your final answer — the JSON object above goes there directly.
+
 Worked example:
 INPUT:
 Stats: meanLuminance=0.32, stdLuminance=0.10, p05=0.05, p95=0.62, meanR=0.34, meanG=0.31, meanB=0.30
 Current settings: pristine
-OUTPUT:
-{"visual_personality":"dim and slightly flat, with preserved shadow density and a compressed highlight range; mostly neutral with a faint warm cast","notable_observations":[{"aspect":"luminance","finding":"meanLuminance=0.32 with p95=0.62","implication":"image is dark and lacks highlight headroom — exposure can be lifted, but pushing whites may clip"},{"aspect":"contrast","finding":"stdLuminance=0.10 — quite flat","implication":"contrast can be increased meaningfully"},{"aspect":"shadow density","finding":"p05=0.05 — true black preserved","implication":"shadows can be lifted up to +30 without crushing"},{"aspect":"color cast","finding":"meanR=0.34 > meanB=0.30","implication":"slight warm cast — pushing temperature warmer is risky"}],"modification_guidance":{"safe_directions":["increase exposure up to +0.5","increase contrast up to +25","lift shadows up to +30"],"risky_directions":["push warmer (already warm-cast)","raise whites aggressively (compressed highlight range)"],"notes":"Good candidate for moody-leaning treatments; flat midtones welcome punch."},"summary":"dim, flat, slight warm cast — plenty of contrast/shadow headroom but limited highlight room"}
-
-Reply with JSON only.`;
+ACTION: call submitImageMoodAnalysis({"visual_personality":"dim and slightly flat, with preserved shadow density and a compressed highlight range; mostly neutral with a faint warm cast","notable_observations":[{"aspect":"luminance","finding":"meanLuminance=0.32 with p95=0.62","implication":"image is dark and lacks highlight headroom — exposure can be lifted, but pushing whites may clip"},{"aspect":"contrast","finding":"stdLuminance=0.10 — quite flat","implication":"contrast can be increased meaningfully"},{"aspect":"shadow density","finding":"p05=0.05 — true black preserved","implication":"shadows can be lifted up to +30 without crushing"},{"aspect":"color cast","finding":"meanR=0.34 > meanB=0.30","implication":"slight warm cast — pushing temperature warmer is risky"}],"modification_guidance":{"safe_directions":["increase exposure up to +0.5","increase contrast up to +25","lift shadows up to +30"],"risky_directions":["push warmer (already warm-cast)","raise whites aggressively (compressed highlight range)"],"notes":"Good candidate for moody-leaning treatments; flat midtones welcome punch."},"summary":"dim, flat, slight warm cast — plenty of contrast/shadow headroom but limited highlight room"})`;
 
 const NON_DEFAULT_KEYS_FOR_PARAMS_SUMMARY: ReadonlyArray<{
   key: keyof GradingParams;

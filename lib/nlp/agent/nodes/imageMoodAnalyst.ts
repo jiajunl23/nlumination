@@ -1,5 +1,6 @@
 import "server-only";
 import OpenAI from "openai";
+import type { ChatCompletionTool } from "openai/resources/chat/completions";
 import { getGroq, GROQ_MODEL } from "../groq";
 import { SYSTEM_PROMPT_IMAGE_MOOD, buildImageMoodUserPrompt } from "../prompts";
 import {
@@ -7,6 +8,21 @@ import {
   IMAGE_MOOD_ANALYSIS_JSON_SCHEMA,
 } from "../schemas";
 import type { AgentState } from "../state";
+
+// Output via a forced tool call rather than `response_format: json_schema`.
+// See emotionAnalyst.ts for the rationale — Groq's response_format decoder
+// is flaky on this analyst's nested output, while tool-arg constrained
+// decoding is reliable.
+const SUBMIT_TOOL_NAME = "submitImageMoodAnalysis";
+const SUBMIT_TOOL: ChatCompletionTool = {
+  type: "function",
+  function: {
+    name: SUBMIT_TOOL_NAME,
+    description:
+      "Submit your image-mood analysis. The args of this call ARE the final answer.",
+    parameters: IMAGE_MOOD_ANALYSIS_JSON_SCHEMA,
+  },
+};
 
 /**
  * Single-shot LLM call: ImageStats + currentParams → structured image-mood
@@ -28,7 +44,7 @@ export async function imageMoodAnalyst(state: AgentState): Promise<void> {
     const completion = await groq.chat.completions.create({
       model: GROQ_MODEL,
       temperature: 0.2,
-      max_tokens: 1024,
+      max_tokens: 2048,
       messages: [
         { role: "system", content: SYSTEM_PROMPT_IMAGE_MOOD },
         {
@@ -39,19 +55,20 @@ export async function imageMoodAnalyst(state: AgentState): Promise<void> {
           ),
         },
       ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "image_mood_analysis",
-          strict: false,
-          schema: IMAGE_MOOD_ANALYSIS_JSON_SCHEMA,
-        },
+      tools: [SUBMIT_TOOL],
+      tool_choice: {
+        type: "function",
+        function: { name: SUBMIT_TOOL_NAME },
       },
     });
     state.callCount += 1;
 
-    const raw = completion.choices[0]?.message.content ?? "{}";
-    const parsed = JSON.parse(raw);
+    const tc = completion.choices[0]?.message.tool_calls?.find(
+      (t): t is Extract<typeof t, { type: "function" }> =>
+        t.type === "function" && t.function.name === SUBMIT_TOOL_NAME,
+    );
+    if (!tc) throw new Error("image mood analyst returned no tool call");
+    const parsed = JSON.parse(tc.function.arguments || "{}");
     const validated = ImageMoodAnalysis.parse(parsed);
     state.imageMood = validated;
     state.trace.push({

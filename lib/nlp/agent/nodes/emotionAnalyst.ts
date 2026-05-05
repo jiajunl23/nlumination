@@ -1,9 +1,26 @@
 import "server-only";
 import OpenAI from "openai";
+import type { ChatCompletionTool } from "openai/resources/chat/completions";
 import { getGroq, GROQ_MODEL } from "../groq";
 import { SYSTEM_PROMPT_EMOTION, buildEmotionUserPrompt } from "../prompts";
 import { EmotionAnalysis, EMOTION_ANALYSIS_JSON_SCHEMA } from "../schemas";
 import type { AgentState } from "../state";
+
+// Output via a forced tool call rather than `response_format: json_schema`.
+// Groq's structured-output generator occasionally gives up on the latter
+// ("Failed to generate JSON") under nested schemas, but tool-arg
+// constrained decoding has been reliable. Side benefit: this matches the
+// pattern already used by the action agent (submitFinalDelta).
+const SUBMIT_TOOL_NAME = "submitEmotionAnalysis";
+const SUBMIT_TOOL: ChatCompletionTool = {
+  type: "function",
+  function: {
+    name: SUBMIT_TOOL_NAME,
+    description:
+      "Submit your emotion analysis. The args of this call ARE the final answer.",
+    parameters: EMOTION_ANALYSIS_JSON_SCHEMA,
+  },
+};
 
 /**
  * Single-shot LLM call: user prompt → structured emotion analysis JSON.
@@ -28,24 +45,25 @@ export async function emotionAnalyst(state: AgentState): Promise<void> {
     const completion = await groq.chat.completions.create({
       model: GROQ_MODEL,
       temperature: 0.2,
-      max_tokens: 1024,
+      max_tokens: 2048,
       messages: [
         { role: "system", content: SYSTEM_PROMPT_EMOTION },
         { role: "user", content: buildEmotionUserPrompt(state.userPrompt) },
       ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "emotion_analysis",
-          strict: false,
-          schema: EMOTION_ANALYSIS_JSON_SCHEMA,
-        },
+      tools: [SUBMIT_TOOL],
+      tool_choice: {
+        type: "function",
+        function: { name: SUBMIT_TOOL_NAME },
       },
     });
     state.callCount += 1;
 
-    const raw = completion.choices[0]?.message.content ?? "{}";
-    const parsed = JSON.parse(raw);
+    const tc = completion.choices[0]?.message.tool_calls?.find(
+      (t): t is Extract<typeof t, { type: "function" }> =>
+        t.type === "function" && t.function.name === SUBMIT_TOOL_NAME,
+    );
+    if (!tc) throw new Error("emotion analyst returned no tool call");
+    const parsed = JSON.parse(tc.function.arguments || "{}");
     const validated = EmotionAnalysis.parse(parsed);
     state.emotionAnalysis = validated;
     state.trace.push({
