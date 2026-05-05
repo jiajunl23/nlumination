@@ -74,7 +74,7 @@ const a2 = {
 };
 const a2Input = a2.systemPrompt + a2.userMessage;
 
-// A3 — Action (json_object, reasoning_effort medium)
+// A3 — Action (json_object, reasoning_effort low)
 const a3UserSample = [
   "USER: warm cinematic golden-hour with raised shadows",
   "EMOTION: Warm cinematic look with golden-hour atmosphere; lifted shadows for openness; filmic contrast.",
@@ -85,7 +85,7 @@ const a3 = {
   systemPrompt: tok(SYSTEM_PROMPT_ACTION ?? ""),
   userMessage: tok(a3UserSample),
   output: 200, // delta JSON, 10-14 fields
-  reasoning: 350, // reasoning_effort: "medium"
+  reasoning: 200, // reasoning_effort: "low" — was 350 at "medium" before truncation hot-fix
 };
 const a3Input = a3.systemPrompt + a3.userMessage;
 
@@ -126,7 +126,7 @@ line("    output + reasoning", a2.output + a2.reasoning);
 const a2Total = a2Input + a2.output + a2.reasoning;
 line("    ── call 2 total", a2Total);
 console.log();
-console.log("  Call 3 — Action (json_object, medium reasoning):");
+console.log("  Call 3 — Action (json_object, low reasoning):");
 line("    system prompt", a3.systemPrompt);
 line("    user message (briefs)", a3.userMessage);
 line("    ─ input", a3Input);
