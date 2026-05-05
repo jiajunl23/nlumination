@@ -143,14 +143,6 @@ Failure modes also exercised:
 - Cost is $0 — running entirely on Groq's free tier. If usage scales past free limits, dropping in a card flips us to the Developer plan at ~$0.075/M input + $0.30/M output with no code changes.
 - The codebase is on `main` at commit `3ad52c0` and auto-deployed to Vercel. `GROQ_API_KEY` is set in both `.env.local` and `.env.production` (and needs to be added in the Vercel dashboard for prod).
 
-## What's next (planned but not built)
-
-- **Streaming responses.** gpt-oss-20b supports `stream: true`. Showing tokens as they arrive would make the AI mode feel ~2× faster perceptually.
-- **Multi-version gallery.** The schema already supports many edits per photo (the `edits` table is 1:N) — needs UI for save-as-new vs update-current and version listing.
-- **Curve UI.** Same as week 1's "what's next" — still pending.
-- **Live quota indicator** in the toggle area (not just per-message), so users can see how many AI calls they have left before they spend one.
-- **Per-tenant key support.** Right now everyone shares the global Groq key. If we wanted users to bring their own keys for unlimited calls, the route already has the seam — just needs a `users.groqKey` column and a precedence check.
-
 ---
 
 # Week 2 (continued) — Multi-agent upgrade
@@ -388,13 +380,6 @@ We rewrote A3's decision rules to push the opposite direction: compound emotiona
 
 LLM mode was deliberately *not* changed: without analyst context, the conservative default is still safer. Word matching is rule-based and lives on its own track — extending it requires editing `intents.ts`/`modifiers.ts` rather than tweaking a prompt.
 
-## What's next (still planned)
-
-- **Streaming the action agent's tokens** so the trace lines feel even faster.
-- **Image-aware preset retrieval.** Right now A3 sees a static catalog of preset descriptions. Embedding-based retrieval (best preset for *this image*'s state) would reduce A3's guesswork.
-- **A1/A2 also as ReAct.** They're single-shot today; giving them tools (e.g. A2 could query specific stat percentiles on demand) would unlock more nuanced briefs at the cost of more tokens.
-- **Per-tenant key support.** Same as before — still pending.
-
 ---
 
 # Week 2 (continued, again) — Token-budget overhaul + gallery save flow
@@ -502,9 +487,3 @@ The `saveEdit()` function (which used to overwrite) is no longer called from the
 - **The agents architecture got simpler, not just cheaper.** Two whole files deleted, ReAct loop gone, tool dispatch gone. Easier to read, easier to debug, fewer ways to fail.
 - **Failure modes still graceful.** Verified live: A2 returning empty content during the bug-hunt phase, the route fell through to A3 with `imageMood = null` and A3 still emitted a valid 10-field delta from the raw prompt + emotion sentence.
 - **Gallery now actually shows what you saved.** Multiple iterations of the same photo coexist as distinct cards. The pixels in the cloud are exactly what the user clicked Save on.
-
-## What's next (carried forward)
-
-- Same as before, plus:
-- **Surface `usage.completion_tokens_details.reasoning_tokens` in the trace** so the user can see the hidden CoT cost per call.
-- **Consider `reasoning_effort: "high"` for A3** in a future "premium" agents tier — at the cost of doubling A3's reasoning tokens (~350 → ~700), the model could compose looks with even tighter coordination across HSL + splitToning.
