@@ -394,3 +394,117 @@ LLM mode was deliberately *not* changed: without analyst context, the conservati
 - **Image-aware preset retrieval.** Right now A3 sees a static catalog of preset descriptions. Embedding-based retrieval (best preset for *this image*'s state) would reduce A3's guesswork.
 - **A1/A2 also as ReAct.** They're single-shot today; giving them tools (e.g. A2 could query specific stat percentiles on demand) would unlock more nuanced briefs at the cost of more tokens.
 - **Per-tenant key support.** Same as before — still pending.
+
+---
+
+# Week 2 (continued, again) — Token-budget overhaul + gallery save flow
+
+The agents pipeline shipped working but expensive. After ~18 prompts in real testing the user had burned ~38k tokens against Groq's 200k/day TPD ceiling — extrapolating, 100 daily prompts would have OOM'd the global token budget long before hitting the 100-call cap. Two commits this session: (1) **`6154a02`** rethinks the gallery save flow, (2) **`4960a48`** slashes per-request token cost ~3-4× by reshaping both LLM and agents modes.
+
+## The diagnosis (`scripts/token-budget.mjs`)
+
+Wrote a small Node script that reads the actual prompt strings + JSON Schema literals out of source and approximates tokens at 4 chars/token (matches Groq's real counts within ±10%). This took the conversation out of "I think this is expensive" into "the system prompt is 529 tokens, the JSON Schema mirror is 262 tokens, the reasoning tokens are 500" — concrete line items we could attack one by one.
+
+Pre-optimization breakdown:
+
+| Surface                          | LLM mode | Agents mode (3 calls) |
+| -------------------------------- | -------- | --------------------- |
+| System prompts (combined)        | 529      | 2,249                 |
+| JSON Schema sent via `response_format` / tool spec | 262      | ~580                  |
+| Visible output                   | 150      | 980                   |
+| Hidden reasoning tokens          | 500      | 1,450                 |
+| **Total per request**            | **1,474**| **5,514**             |
+
+Two big lever points jumped out: the **JSON Schema** sent as input was effectively redundant with the Zod re-validation we already ran post-hoc, and **`reasoning_effort: "low"`** (a Groq parameter we hadn't been passing) cuts gpt-oss-20b's hidden chain-of-thought from ~500 → ~150 tokens per call with negligible quality drop on structured tasks.
+
+## Phase 1 — LLM-mode trim (1,474 → 543 tokens)
+
+Four changes, all in `lib/nlp/llm-prompt.ts`, `lib/nlp/llm-schema.ts`, and the route:
+
+1. **Switched `response_format` from `json_schema` to `json_object`.** The schema string was costing ~262 input tokens per call. Validation post-hoc via `LLMDelta.parse(...)` + `mergeDelta()`'s `clamp()` gives the same defence-in-depth.
+2. **Trimmed system prompt from 4 worked examples to 1** (the polaroid example, which exercises the most fields). Compacted field-semantics from a 12-line block to one line ("all -100..100 unless noted (exposure -3..3, splitTone hues 0..360)").
+3. **Added `reasoning_effort: "low"`** to the call.
+4. **Dropped `.min()/.max()` from the Zod `LLMDelta` schema** so out-of-range values (now possible without strict json_schema gatekeeping) get clamped in `mergeDelta()` instead of rejected.
+
+Result: 1,474 → **543 tokens/request** (−63%). 200k/day capacity for LLM mode: 135 → **368 prompts**.
+
+## Phase 2 — Agents pipeline redesign (5,514 → ~1,769 tokens)
+
+The user's intuition was right: the structured analyst outputs were overkill. A1's `EmotionAnalysis` JSON Schema (5 nested arrays, free-form qualities, explicit_terms, caveats) and A2's `ImageMoodAnalysis` (notable_observations array, modification_guidance object) were each ~500 tokens of tool spec + ~350 tokens of model output, when downstream A3 only needed *one paragraph* and *one sentence* respectively.
+
+The redesign:
+
+- **A1 — Emotion Analyst.** Now a plain `chat.completions.create()` call. System prompt asks for "1-2 sentences (≤60 words), plain text, no JSON" describing mood + style + caveat. Output: `state.emotionAnalysis: string | null`.
+- **A2 — Image-Mood Analyst.** Same shape — one sentence describing brightness/contrast/cast/headroom. `state.imageMood: string | null`.
+- **A3 — Action Agent.** Switched from a ReAct loop with tools (`applyPreset` + `submitFinalDelta`) to a single `chat.completions.create()` with `response_format: { type: "json_object" }`, mirroring LLM mode. Reads the two short briefs as plain text in the user message, emits `LLMDelta` directly. `reasoning_effort: "medium"` (kept higher than analysts because A3 does the actual structured decision-making across many fields).
+
+Two whole files deleted: **`lib/nlp/agent/schemas.ts`** (175 lines) and **`lib/nlp/agent/tools.ts`** (159 lines). `state.ts` lost the `actionMessages` / `actionIter` fields and 4 of its 6 TraceEntry variants. ChatPanel's `traceToLines` collapsed too — three breadcrumbs (`actionAgent.callLLM`, `.tool`, `.finalize`) became a single `actionAgent` entry.
+
+Net diff for the redesign: **−524 lines** of agent code + **−260 lines** of prompts.ts content + a **913 → 379 line ratio** across the whole multi-agent surface (`12 files changed, 379 insertions(+), 903 deletions(-)`).
+
+Result: 5,514 → **~1,769 tokens/request** (−68%). Daily capacity: 36 → **113 agents prompts**. Agents/LLM ratio dropped from 3.74× → 3.26×.
+
+## Two bugs surfaced in browser verification
+
+`reasoning_effort: "low"` plus a tight `max_tokens` doesn't free-up the visible-output budget — the hidden reasoning eats the cap. Two manifestations:
+
+1. **A2 occasionally returned empty content.** `max_tokens: 150` on the analyst call wasn't enough; reasoning consumed it all and `message.content` came back `""`. Bumped to `320` (visible target ~30 + reasoning headroom + buffer).
+2. **A3 hit 400 "Failed to validate JSON" intermittently.** Same root cause — `max_tokens: 768` with `reasoning_effort: "medium"` left the model truncating mid-JSON when reasoning ran long. Bumped to `1280`.
+
+`max_tokens` is just a ceiling; `reasoning_effort` is what controls actual cost. Both bumps cost nothing in practice — they're just bigger buffers for the rare long-reasoning calls.
+
+## Verification (8 Playwright runs, real Groq calls)
+
+| Mode    | Prompt                                                                    | Calls | Output |
+| ------- | ------------------------------------------------------------------------- | ----- | ------ |
+| Agents  | "warm cinematic golden-hour with raised shadows" (A2 failed once)         | +3    | 10 fields, fallback path produced sensible delta |
+| Agents  | "moody filmic look with deep blue shadows" (post max_tokens fix)          | +3    | 10 fields, "moody filmic … saturated blues, sharp silhouettes" |
+| Agents  | "make it warmer"                                                          | +3    | 10 fields (agents legitimately interprets richly) |
+| Agents  | "vintage faded polaroid, but keep skin tones natural"                     | +3    | 10 fields, sat -15 globally, no aggressive HSL |
+| LLM     | same prompt as above                                                      | +1    | 5 fields (more restrained — expected for LLM mode) |
+| Auto    | "warmer"                                                                  | **+0**| parser hit, 1 field |
+| Auto    | "make it look like an old book illustration"                              | +1    | parser miss → LLM fallback, 5 fields |
+| Agents  | "subdued melancholy mood — desaturated but not dull, cool but not blue"   | +3    | 9 fields, A3 reasoning honored both contradictions |
+
+Last test was the most pleasing — A3's reasoning text came back as *"Subdued cool desaturated look, lifted shadows, low contrast, gentle lift, minimal blue tint"* — directly addressing both "but not dull" (gentle lift) and "but not blue" (minimal blue tint, +3 magenta).
+
+## Gallery save flow rethink (`6154a02`)
+
+The user reported that saving an edit just updated the original photo's `params` row (Pipeline still rendered live in the gallery) — meaning a heavily-edited photo and the original looked identical in the card if WebGL pipeline didn't run. They wanted **multiple saved versions visible as separate cards**.
+
+Changed `EditorRoot.tsx`'s `onSave` to:
+
+1. Render the WebGL canvas to JPEG via `canvasRef.current.exportBlob("image/jpeg", 0.92)` — full resolution, edit + LUT baked in.
+2. Upload the rendered Blob as a *new* photo via the new `uploadRenderedAsPhoto()` helper (`lib/storage/upload.ts`) — no `encodeToJpeg` re-pass, no original ImageBitmap touched.
+3. Store `params: DEFAULT_PARAMS` on the new photo's edit row, so the gallery's `PhotoCard` WebGL pipeline renders it as a no-op (the edit is in the pixels, not in the params).
+4. Don't redirect — keep the user in the current editing session so they can iterate and save more versions.
+
+Filename gets `-edit-${Date.now()}.jpg` appended so each version has a unique name. Legacy photos saved before this change still render with their stored params, unaffected.
+
+The `saveEdit()` function (which used to overwrite) is no longer called from the editor; left in `lib/storage/upload.ts` for now in case a future "Update this photo's edit" UI wants it.
+
+## Numbers (final, for both commits this session)
+
+| | Pre-session | Post-session |
+| --- | --- | --- |
+| LLM mode tokens/request | 1,474 | **543** |
+| Agents mode tokens/request | 5,514 | **~1,769** |
+| Agents/LLM ratio | 3.74× | **3.26×** |
+| 200k TPD → LLM prompts/day | 135 | **368** |
+| 200k TPD → Agents prompts/day | 36 | **113** |
+| Agents files needed | 8 (.ts in `agent/`) | **6** (`schemas.ts` and `tools.ts` deleted) |
+| Action agent code | 217 lines (ReAct loop) | **89 lines** (single shot) |
+| Each save creates | overwrite of one photo | **new gallery card with baked pixels** |
+
+## Why this is a real milestone
+
+- **Cost is now genuinely low.** A user doing 50 agents prompts/day uses ~88k of the 200k TPD budget — leaving room for everyone else. Before the redesign, 50 agents prompts would have burned the entire 200k.
+- **The agents architecture got simpler, not just cheaper.** Two whole files deleted, ReAct loop gone, tool dispatch gone. Easier to read, easier to debug, fewer ways to fail.
+- **Failure modes still graceful.** Verified live: A2 returning empty content during the bug-hunt phase, the route fell through to A3 with `imageMood = null` and A3 still emitted a valid 10-field delta from the raw prompt + emotion sentence.
+- **Gallery now actually shows what you saved.** Multiple iterations of the same photo coexist as distinct cards. The pixels in the cloud are exactly what the user clicked Save on.
+
+## What's next (carried forward)
+
+- Same as before, plus:
+- **Surface `usage.completion_tokens_details.reasoning_tokens` in the trace** so the user can see the hidden CoT cost per call.
+- **Consider `reasoning_effort: "high"` for A3** in a future "premium" agents tier — at the cost of doubling A3's reasoning tokens (~350 → ~700), the model could compose looks with even tighter coordination across HSL + splitToning.
