@@ -24,30 +24,29 @@ import {
 // LLM-mode call to save ~262 input tokens), the model can occasionally
 // emit out-of-range numbers. We accept anything numeric here and clamp in
 // mergeDelta — ranges stay documented in the JSON Schema mirror below.
-// `_min` / `_max` are kept as parameter names for self-documentation.
-const num = (_min: number, _max: number) => z.number().optional();
+const num = () => z.number().optional();
 
 const HslDeltaSchema = z
   .object({
-    hue: num(-100, 100),
-    saturation: num(-100, 100),
-    luminance: num(-100, 100),
+    hue: num(),
+    saturation: num(),
+    luminance: num(),
   })
   .strict();
 
 export const LLMDelta = z
   .object({
-    temperature: num(-100, 100),
-    tint: num(-100, 100),
-    exposure: num(-3, 3),
-    contrast: num(-100, 100),
-    highlights: num(-100, 100),
-    shadows: num(-100, 100),
-    whites: num(-100, 100),
-    blacks: num(-100, 100),
-    vibrance: num(-100, 100),
-    saturation: num(-100, 100),
-    clarity: num(-100, 100),
+    temperature: num(),
+    tint: num(),
+    exposure: num(),
+    contrast: num(),
+    highlights: num(),
+    shadows: num(),
+    whites: num(),
+    blacks: num(),
+    vibrance: num(),
+    saturation: num(),
+    clarity: num(),
     hsl: z
       .object(
         Object.fromEntries(
@@ -58,15 +57,15 @@ export const LLMDelta = z
       .optional(),
     splitToning: z
       .object({
-        shadowHue: num(0, 360),
-        shadowSaturation: num(0, 100),
-        highlightHue: num(0, 360),
-        highlightSaturation: num(0, 100),
-        balance: num(-100, 100),
+        shadowHue: num(),
+        shadowSaturation: num(),
+        highlightHue: num(),
+        highlightSaturation: num(),
+        balance: num(),
       })
       .strict()
       .optional(),
-    vignetteAmount: num(-100, 100),
+    vignetteAmount: num(),
     reasoning: z.string().max(160).optional(),
   })
   .strict();
