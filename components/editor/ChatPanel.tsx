@@ -604,21 +604,13 @@ function traceToLines(trace: TraceEntry[]): string[] {
       case "imageMoodAnalyst":
         out.push(t.ok ? "🖼️ Read image" : `🖼️ Image analyst failed (${t.error ?? "unknown"})`);
         break;
-      case "actionAgent.tool":
-        if (t.name === "applyPreset" && t.ok) {
-          const preset = (t.args as { name?: string })?.name ?? "preset";
-          out.push(`📚 Considered preset '${preset}'`);
-        } else {
-          out.push(`🔧 Tool ${t.name} ${t.ok ? "ok" : "failed"}`);
-        }
-        break;
-      case "actionAgent.finalize":
+      case "actionAgent":
         if (t.ok) out.push("✨ Composed delta");
+        else out.push(`✨ Action agent failed (${t.error ?? "unknown"})`);
         break;
       case "fallback":
         out.push(`↩ Fell back to single-shot (${t.reason})`);
         break;
-      // actionAgent.callLLM is internal-only — collapsed into other traces.
       default:
         break;
     }

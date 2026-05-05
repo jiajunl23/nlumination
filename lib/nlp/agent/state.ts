@@ -2,8 +2,8 @@
  * AgentState — shared memory for one agents-mode user request.
  *
  * Layout: three input fields (frozen at request start), two analyst
- * outputs (filled by A1/A2 nodes), one A3-only conversation history,
- * a final delta, and a trace breadcrumb log.
+ * outputs (filled by A1/A2 nodes — plain strings now, not nested
+ * structured JSON), a final delta, and a trace breadcrumb log.
  *
  * Mutation policy: nodes mutate `state` in place (push to messages/trace,
  * assign scalars). Pure-functional copying isn't worth the cost here —
@@ -11,11 +11,9 @@
  * runAgentsPipeline().
  */
 
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import type { GradingParams } from "@/lib/grading/params";
 import type { ImageStats } from "@/lib/grading/imageStats";
 import type { LLMDeltaT } from "@/lib/nlp/llm-schema";
-import type { EmotionAnalysisT, ImageMoodAnalysisT } from "./schemas";
 
 /**
  * Per-node breadcrumb. Shipped to the client so ChatPanel renders the
@@ -24,20 +22,7 @@ import type { EmotionAnalysisT, ImageMoodAnalysisT } from "./schemas";
 export type TraceEntry =
   | { node: "emotionAnalyst"; ok: boolean; summary?: string; error?: string }
   | { node: "imageMoodAnalyst"; ok: boolean; summary?: string; error?: string }
-  | {
-      node: "actionAgent.callLLM";
-      iter: number;
-      toolCalls: string[] | null;
-      finishReason: string;
-    }
-  | {
-      node: "actionAgent.tool";
-      name: string;
-      args: unknown;
-      ok: boolean;
-      error?: string;
-    }
-  | { node: "actionAgent.finalize"; ok: boolean; error?: string }
+  | { node: "actionAgent"; ok: boolean; summary?: string; error?: string }
   | { node: "fallback"; reason: string };
 
 export interface AgentState {
@@ -46,13 +31,12 @@ export interface AgentState {
   currentParams: GradingParams;
   imageStats: ImageStats | null;
 
-  // ── Analyst outputs (null on failure → A3 falls back to raw) ───
-  emotionAnalysis: EmotionAnalysisT | null;
-  imageMood: ImageMoodAnalysisT | null;
-
-  // ── Action agent's own conversation history (only A3 uses this) ──
-  actionMessages: ChatCompletionMessageParam[];
-  actionIter: number;
+  // ── Analyst outputs ────────────────────────────────────────────
+  // A1 returns 1-2 sentences describing emotional/aesthetic intent.
+  // A2 returns 1 sentence describing the photo's current style/headroom.
+  // null = analyst failed; A3 falls back to raw user prompt / stats.
+  emotionAnalysis: string | null;
+  imageMood: string | null;
 
   // ── Terminal state ─────────────────────────────────────────────
   finalDelta: LLMDeltaT | null;
@@ -78,8 +62,6 @@ export function initialState(input: InitialStateInput): AgentState {
     imageStats: input.imageStats,
     emotionAnalysis: null,
     imageMood: null,
-    actionMessages: [],
-    actionIter: 0,
     finalDelta: null,
     error: null,
     trace: [],

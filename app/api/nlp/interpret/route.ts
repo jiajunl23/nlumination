@@ -17,7 +17,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import OpenAI from "openai";
 import { requireDbUser, UnauthorizedError } from "@/lib/auth/current-user";
-import { LLMDelta, LLM_JSON_SCHEMA, type LLMDeltaT } from "@/lib/nlp/llm-schema";
+import { LLMDelta, type LLMDeltaT } from "@/lib/nlp/llm-schema";
 import { SYSTEM_PROMPT, buildUserPrompt } from "@/lib/nlp/llm-prompt";
 import { DAILY_LLM_LIMIT, MODE_COST, type ServerMode } from "@/lib/nlp/modes";
 import { getRemaining, incrementUsage } from "@/lib/nlp/quota";
@@ -59,7 +59,14 @@ async function singleShotFallback(input: {
     const completion = await groq.chat.completions.create({
       model: GROQ_MODEL,
       temperature: 0.2,
-      max_tokens: 1024,
+      max_tokens: 512,
+      // json_object (not json_schema): the schema would have cost ~262
+      // input tokens per call. Zod + mergeDelta clamp post-hoc.
+      response_format: { type: "json_object" },
+      // gpt-oss-20b emits hidden reasoning tokens that count toward the
+      // TPD limit. "low" cuts them from ~500 to ~150 with negligible
+      // quality drop on this structured task.
+      reasoning_effort: "low",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {
@@ -67,14 +74,6 @@ async function singleShotFallback(input: {
           content: buildUserPrompt(input.prompt, input.current, input.stats),
         },
       ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "grading_delta",
-          strict: false,
-          schema: LLM_JSON_SCHEMA,
-        },
-      },
     });
     const raw = completion.choices[0]?.message.content ?? "{}";
     const parsed = JSON.parse(raw);

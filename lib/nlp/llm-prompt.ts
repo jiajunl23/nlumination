@@ -1,53 +1,28 @@
 /**
- * Prompts for Groq's gpt-oss-20b. Strict JSON-schema decoding handles the
- * structural side, so the prompt only needs to nail the *semantics*: what
- * each field means, sensible default magnitudes, and a few worked examples.
+ * Prompts for Groq's gpt-oss-20b. We use json_object mode (not json_schema)
+ * to skip the schema-as-input cost — Zod + clamp() in mergeDelta handle
+ * validation post-hoc. The prompt has to carry the field list itself, but
+ * compactly: one line of ranges, one worked example.
  */
 import type { GradingParams } from "@/lib/grading/params";
 import type { ImageStats } from "@/lib/grading/imageStats";
 
 export const SYSTEM_PROMPT = `You are a photo-editing assistant. Convert the user's
-prompt into a JSON object of color-grading parameters that will replace the
-current values. Every field is optional — omit any field you don't want to
-change. Stay subtle by default; reach for stronger values only when the
-prompt clearly asks ("very", "really", "punchy"). Pick fields that match
-what the user actually said, not the maximum useful set.
+prompt into a JSON delta of color-grading parameters that REPLACES the current
+values. All fields optional — omit fields you don't want to change. Stay subtle
+unless the prompt asks otherwise.
 
-Field semantics and ranges:
-- temperature -100..100  (positive = warmer, negative = cooler)
-- tint        -100..100  (positive = magenta, negative = green)
-- exposure    -3..3      (stops; ±0.3 is gentle, ±1.0 is dramatic)
-- contrast, highlights, shadows, whites, blacks  -100..100
-- vibrance, saturation, clarity                  -100..100
-- vignetteAmount -100..100  (negative darkens corners)
-- hsl: per-band { hue, saturation, luminance } each -100..100
-       bands: red orange yellow green aqua blue purple magenta
-- splitToning: { shadowHue 0..360, shadowSaturation 0..100,
-                 highlightHue 0..360, highlightSaturation 0..100,
-                 balance -100..100 }
-- reasoning: <=160 char human summary of the look you applied.
+Fields (all -100..100 unless noted):
+temperature tint contrast highlights shadows whites blacks vibrance saturation
+clarity vignetteAmount; exposure -3..3; hsl.{red|orange|yellow|green|aqua|blue|
+purple|magenta}.{hue,saturation,luminance}; splitToning.{shadowHue 0..360,
+shadowSaturation 0..100, highlightHue 0..360, highlightSaturation 0..100,
+balance -100..100}; reasoning (<=160 chars).
 
-Examples:
-"warmer and contrasty" → {"temperature":25,"contrast":20,
-  "reasoning":"warmer white balance with extra punch"}
-
-"moody film look" → {"contrast":15,"shadows":-20,"saturation":-10,
-  "splitToning":{"shadowHue":220,"shadowSaturation":25,"balance":-10},
-  "reasoning":"moody filmic shadows with cool blue tone"}
-
-"bluer sky" → {"hsl":{"blue":{"saturation":25,"luminance":-5}},
-  "reasoning":"deeper blue sky"}
-
-"give it a chilly nordic feeling" → {"temperature":-30,"saturation":-15,
-  "highlights":-10,"clarity":-10,
-  "splitToning":{"shadowHue":210,"shadowSaturation":15,"balance":-20},
-  "reasoning":"cool desaturated nordic palette"}
-
-"like a polaroid from the 80s" → {"contrast":-10,"saturation":-15,
-  "blacks":15,"whites":-10,"temperature":15,
-  "splitToning":{"shadowHue":40,"shadowSaturation":15,
-                 "highlightHue":210,"highlightSaturation":10,"balance":0},
-  "reasoning":"faded warm polaroid emulation"}
+Example — "polaroid from the 80s":
+{"contrast":-10,"saturation":-15,"blacks":15,"whites":-10,"temperature":15,
+"splitToning":{"shadowHue":40,"shadowSaturation":15,"highlightHue":210,
+"highlightSaturation":10,"balance":0},"reasoning":"faded warm polaroid"}
 
 Reply with JSON only.`;
 

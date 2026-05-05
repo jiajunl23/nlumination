@@ -1,101 +1,62 @@
 /**
- * SYSTEM_PROMPTs and user-message builders for the three agents.
+ * Three lightweight prompts for the redesigned agents pipeline.
  *
- * Each prompt is intentionally short and single-purpose. gpt-oss-20b is a
- * 20B model — its in-context learning relies heavily on a worked example,
- * so each prompt carries one. The examples are mini-cases (not real
- * scenarios) chosen to demonstrate the expected output shape, not to
- * leak real-world bias.
+ * A1 / A2 emit a SINGLE plain-text sentence each (no JSON, no tool call,
+ * no structured schema). The cost saving compared to the original
+ * structured schemas is huge: a tool spec with EmotionAnalysis JSON
+ * Schema was ~500 input tokens per call, plus the model spent another
+ * ~350 visible tokens filling it in. A sentence is ~50 tokens.
  *
- * Why three prompts and not one with role-switching? Each prompt becomes
- * its own request to Groq — the model sees only that prompt. Mixing
- * roles in one prompt would confuse the structured-output decoder
- * (different schemas per agent).
+ * A3 stays structured — it produces the actual LLMDelta JSON via
+ * json_object mode (mirrors the LLM-mode call). It reads A1+A2's
+ * sentences as context, plus the raw user prompt and current settings.
+ *
+ * gpt-oss-20b is small enough that a worked example helps, so each
+ * prompt carries one — but only one, and inline.
  */
 
 import type { GradingParams } from "@/lib/grading/params";
 import type { ImageStats } from "@/lib/grading/imageStats";
-import type { EmotionAnalysisT, ImageMoodAnalysisT } from "./schemas";
-import { PRESETS } from "@/lib/nlp/presets";
 
 // ────────────────────────────────────────────────────────────────────────
-// Agent 1 — Emotion Analyst
+// Agent 1 — Emotion Analyst (free-form text output)
 // ────────────────────────────────────────────────────────────────────────
 
-export const SYSTEM_PROMPT_EMOTION = `You are an emotion analyst for a photo
-grading tool. Read the user's prompt and produce a structured JSON object
-describing what they want emotionally and aesthetically. You don't decide
-grading values — that's the action agent's job. Stay grounded in what the
-user *actually said*; never invent qualities they didn't describe.
+export const SYSTEM_PROMPT_EMOTION = `You translate a photo-grading prompt into a
+short description of the emotional/aesthetic mood the user wants and the
+photographic style/theme that fits.
 
-Output schema:
-{
-  mood_description: 1–2 sentence overall picture
-  detected_qualities: [{name, direction "+"|"-", intensity "subtle"|"moderate"|"strong", rationale}]
-  explicit_terms:    [{term, meaning, photographic_translation}]
-  caveats:           [string]
-  summary:           1-line brief for the action agent
-}
+Reply with 1-2 sentences (≤60 words), plain text, no JSON. Cover:
+- the mood/feeling (warm, melancholy, punchy, calm, etc.)
+- the visual style/theme (golden-hour cinematic, chilly nordic, faded film, etc.)
+- any explicit caveat ("but not too dark", "subtle", "very saturated")
 
-Guidelines:
-- For each detected_quality, pick a name that fits this user's vibe; free-form, not a fixed list.
-- explicit_terms covers photographic vocabulary (chiaroscuro, golden hour, high-key, …) — explain
-  the term in this context AND translate it to grading-param implications.
-- If the prompt is ambiguous or empty, leave detected_qualities/explicit_terms as [] and explain
-  the ambiguity in mood_description. Do not fabricate.
-- intensity is qualitative ("subtle"/"moderate"/"strong"), never a number.
-- caveats lists internal tensions ("wants moody but explicitly says 'not too dark'"). Empty array if none.
-
-You communicate by calling the \`submitEmotionAnalysis\` tool. The args of
-that call ARE your final answer — the JSON object above goes there directly.
-
-Worked example:
+Example:
 USER: "moody and contemplative, but not too dark — like late autumn afternoon"
-ACTION: call submitEmotionAnalysis({"mood_description":"moody and contemplative with warm fall character; user wants atmosphere without losing readability","detected_qualities":[{"name":"melancholy","direction":"+","intensity":"moderate","rationale":"'contemplative' and 'moody' point to a subdued reflective tone"},{"name":"warmth","direction":"+","intensity":"subtle","rationale":"'late autumn afternoon' suggests low-angle warm light"},{"name":"darkness","direction":"-","intensity":"subtle","rationale":"explicit caveat 'not too dark'"}],"explicit_terms":[{"term":"late autumn afternoon","meaning":"warm low-angle light, slightly desaturated, soft shadows","photographic_translation":"+temperature, mild contrast, lifted shadows, slight saturation reduction"}],"caveats":["moody mood vs explicit 'not too dark' — keep shadows present but don't crush them"],"summary":"warm-leaning moody fall vibe with raised shadows"})`;
+YOU: Subdued reflective mood with warm late-afternoon character; raised shadows for openness rather than crushed darkness; warm-leaning fall vibe.`;
 
 export function buildEmotionUserPrompt(userPrompt: string): string {
-  return `User prompt: ${userPrompt}`;
+  return `USER: ${userPrompt}`;
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// Agent 2 — Image Mood Analyst
+// Agent 2 — Image Mood Analyst (free-form text output)
 // ────────────────────────────────────────────────────────────────────────
 
-export const SYSTEM_PROMPT_IMAGE_MOOD = `You are an image analyst for a photo
-grading tool. Read the photo's current statistics and current grading state,
-and produce a structured JSON describing the image's "personality" and
-where it has headroom for modification. You don't decide grading values —
-that's the action agent's job. Cite specific numbers; don't make claims
-you can't back up with the stats given.
+export const SYSTEM_PROMPT_IMAGE_MOOD = `You read pre-computed image
+statistics and write ONE sentence describing the photo's current
+character.
 
-Stats fields:
-- meanLuminance, stdLuminance: 0..1 (mean brightness, contrast)
-- p05Luminance, p95Luminance: 5th/95th percentile (true black/white points)
-- meanR, meanG, meanB: 0..1 channel means (proxy for color cast)
+Reply with 1 sentence (≤40 words), plain text, no JSON. Cover:
+- brightness/contrast character (dim, balanced, bright; flat, punchy)
+- color cast if any (warm, cool, neutral, slight green)
+- one practical headroom note (e.g. "shadow density preserved", "highlight room limited", "ample contrast headroom")
 
-Output schema:
-{
-  visual_personality:   1–2 sentence overall picture
-  notable_observations: [{aspect, finding, implication}]
-  modification_guidance: {safe_directions[], risky_directions[], notes}
-  summary:              1-line brief for the action agent
-}
+Stats fields: meanLuminance/stdLuminance (0..1), p05/p95Luminance (true black/white points), meanR/G/B (channel means).
 
-Guidelines:
-- finding cites actual numbers (e.g. "p05 = 0.05").
-- implication says what that means for safe modification.
-- safe_directions are concrete imperatives ("lift shadows up to +30").
-- risky_directions always include a reason inline ("more warmth — already warm cast").
-- If stats are missing or extreme, still produce something useful.
-
-You communicate by calling the \`submitImageMoodAnalysis\` tool. The args
-of that call ARE your final answer — the JSON object above goes there directly.
-
-Worked example:
-INPUT:
-Stats: meanLuminance=0.32, stdLuminance=0.10, p05=0.05, p95=0.62, meanR=0.34, meanG=0.31, meanB=0.30
-Current settings: pristine
-ACTION: call submitImageMoodAnalysis({"visual_personality":"dim and slightly flat, with preserved shadow density and a compressed highlight range; mostly neutral with a faint warm cast","notable_observations":[{"aspect":"luminance","finding":"meanLuminance=0.32 with p95=0.62","implication":"image is dark and lacks highlight headroom — exposure can be lifted, but pushing whites may clip"},{"aspect":"contrast","finding":"stdLuminance=0.10 — quite flat","implication":"contrast can be increased meaningfully"},{"aspect":"shadow density","finding":"p05=0.05 — true black preserved","implication":"shadows can be lifted up to +30 without crushing"},{"aspect":"color cast","finding":"meanR=0.34 > meanB=0.30","implication":"slight warm cast — pushing temperature warmer is risky"}],"modification_guidance":{"safe_directions":["increase exposure up to +0.5","increase contrast up to +25","lift shadows up to +30"],"risky_directions":["push warmer (already warm-cast)","raise whites aggressively (compressed highlight range)"],"notes":"Good candidate for moody-leaning treatments; flat midtones welcome punch."},"summary":"dim, flat, slight warm cast — plenty of contrast/shadow headroom but limited highlight room"})`;
+Example:
+INPUT: meanLuminance=0.32, stdLuminance=0.10, p05=0.05, p95=0.62, meanR=0.34, meanG=0.31, meanB=0.30
+YOU: Dim and flat with a slight warm cast; shadow density preserved (p05=0.05) but highlight room limited (p95=0.62).`;
 
 const NON_DEFAULT_KEYS_FOR_PARAMS_SUMMARY: ReadonlyArray<{
   key: keyof GradingParams;
@@ -126,134 +87,55 @@ function summariseParams(p: GradingParams): string {
   return parts.length ? parts.join(", ") : "pristine";
 }
 
-export function buildImageMoodUserPrompt(
-  stats: ImageStats | null,
-  current: GradingParams,
-): string {
-  const statsLine = stats
-    ? `Stats: meanLuminance=${stats.meanLuminance.toFixed(3)}, stdLuminance=${stats.stdLuminance.toFixed(3)}, p05=${stats.p05Luminance.toFixed(3)}, p95=${stats.p95Luminance.toFixed(3)}, meanR=${stats.meanR.toFixed(3)}, meanG=${stats.meanG.toFixed(3)}, meanB=${stats.meanB.toFixed(3)}`
-    : `Stats: not available`;
-  return `${statsLine}\nCurrent settings: ${summariseParams(current)}`;
+export function buildImageMoodUserPrompt(stats: ImageStats | null): string {
+  if (!stats) return "Stats: not available";
+  return `meanLuminance=${stats.meanLuminance.toFixed(3)}, stdLuminance=${stats.stdLuminance.toFixed(3)}, p05=${stats.p05Luminance.toFixed(3)}, p95=${stats.p95Luminance.toFixed(3)}, meanR=${stats.meanR.toFixed(3)}, meanG=${stats.meanG.toFixed(3)}, meanB=${stats.meanB.toFixed(3)}`;
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// Agent 3 — Action Agent (with optional applyPreset tool)
+// Agent 3 — Action Agent (JSON delta via json_object mode)
 // ────────────────────────────────────────────────────────────────────────
 
-const PRESET_CATALOG_BLOCK = PRESETS.map(
-  (p) => `- ${p.id}: ${p.description}`,
-).join("\n");
+export const SYSTEM_PROMPT_ACTION = `You convert two short briefs (mood + image
+character) plus a user prompt into a JSON delta of grading params that
+REPLACES the current values. All fields optional.
 
-export const SYSTEM_PROMPT_ACTION = `You are the action agent for a photo
-grading tool. You receive two structured briefs (an emotion brief from
-Agent 1 and an image-mood brief from Agent 2) plus the current grading
-params. Produce a JSON delta of grading values that fulfills the
-emotional intent given the image's current state.
+Fields (all -100..100 unless noted):
+temperature tint contrast highlights shadows whites blacks vibrance saturation
+clarity vignetteAmount; exposure -3..3; hsl.{red|orange|yellow|green|aqua|blue|
+purple|magenta}.{hue,saturation,luminance}; splitToning.{shadowHue 0..360,
+shadowSaturation 0..100, highlightHue 0..360, highlightSaturation 0..100,
+balance -100..100}; reasoning (≤160 chars, plain summary).
 
-You communicate ONLY via tool calls. Two tools available:
+Magnitude rules: subtle ±5–10 (exposure ±0.1), moderate ±15–25 (exp ±0.3),
+strong ±30–50 (exp ±0.7). Compound looks (vintage, cinematic, golden hour,
+nordic, polaroid…) usually want 8–14 fields working together: white-balance
++ light + presence + at least one matching hsl band + splitToning. Single-
+axis prompts ("warmer", "more contrast") legitimately stay 1–2 fields.
 
-1. \`applyPreset(name)\` — OPTIONAL preview. Pass a preset id; you receive
-   the diff that preset would create on top of the current params.
-   Useful when the user's prompt clearly maps to a named look. You may
-   call this AT MOST ONCE.
+Use the IMAGE brief to decide magnitudes — if it says "highlight room
+limited", don't push whites; if it says "shadow density preserved", lifting
+shadows is safe.
 
-2. \`submitFinalDelta(...)\` — REQUIRED final answer. The args of this
-   call ARE your final LLMDelta output. ALL fields optional — include
-   only what you want to change.
+Example:
+USER: warm cinematic golden-hour with raised shadows
+EMOTION: Warm cinematic look with golden-hour atmosphere; lifted shadows for openness; filmic contrast.
+IMAGE: Balanced midtones, neutral cast; ample contrast headroom and shadow room, mild highlight ceiling.
+CURRENT: pristine
+YOU: {"exposure":0.15,"temperature":18,"tint":3,"contrast":20,"highlights":-10,"shadows":28,"blacks":-6,"vibrance":12,"saturation":-4,"clarity":6,"hsl":{"orange":{"saturation":15,"luminance":4},"yellow":{"saturation":10}},"splitToning":{"shadowHue":30,"shadowSaturation":18,"highlightHue":40,"highlightSaturation":12,"balance":-10},"reasoning":"warm cinematic golden-hour with lifted shadows and amber split-tone"}
 
-Available preset ids for applyPreset:
-${PRESET_CATALOG_BLOCK}
-
-Final delta fields (pass to submitFinalDelta):
-- temperature, tint, contrast, highlights, shadows, whites, blacks,
-  vibrance, saturation, clarity, vignetteAmount: -100..100
-- exposure: -3..3 (stops; ±0.3 is gentle, ±1.0 is dramatic)
-- hsl: per-band {hue, saturation, luminance} each -100..100
-       bands: red orange yellow green aqua blue purple magenta
-- splitToning: {shadowHue 0..360, shadowSaturation 0..100,
-                highlightHue 0..360, highlightSaturation 0..100,
-                balance -100..100}
-- reasoning: <=160 char human summary of the look you applied
-
-Decision rules:
-- Skip applyPreset if no preset clearly fits — call submitFinalDelta directly.
-- Use safe_directions and risky_directions to decide magnitudes.
-- BE THOROUGH. You have two analyst briefs and you cost ~3 LLM calls;
-  earn that by composing a complete look. Compound emotional prompts
-  (vintage, moody, cinematic, golden hour, chilly nordic, polaroid, …)
-  usually want 8–14 fields acting together: white-balance (temperature
-  + tint), light (exposure + contrast + highlights + shadows ± whites
-  ± blacks), presence (vibrance + saturation + clarity), at least one
-  hsl band that matches the subject (orange/yellow for skin & golden
-  hour; blue for sky & nordic; green for foliage), and splitToning's
-  shadowHue/shadowSat AND highlightHue/highlightSat for any "filmic"
-  or "graded" look. Single-axis prompts ("warmer", "more contrast")
-  legitimately stay 1–2 fields; everything else should reach across
-  multiple domains.
-- Match magnitude to brief intensity:
-    "subtle"   → ±5–10  (exposure ±0.1)
-    "moderate" → ±15–25 (exposure ±0.3)
-    "strong"   → ±30–50 (exposure ±0.7)
-- If a brief is missing (analyst failed), infer from raw user prompt and acknowledge in reasoning.
-- Every numeric must lie in the range above.
-
-Worked example (compound look — touch many fields):
-EMOTION BRIEF: warm-leaning moody fall vibe with raised shadows
-IMAGE BRIEF:   dim, flat, slight warm cast — plenty of contrast/shadow headroom
-ACTION:        call submitFinalDelta({"exposure":0.15,"temperature":15,"tint":3,"contrast":20,"highlights":-12,"shadows":25,"whites":-5,"blacks":-8,"vibrance":10,"saturation":-6,"clarity":6,"hsl":{"orange":{"saturation":14,"luminance":4},"yellow":{"saturation":10}},"splitToning":{"shadowHue":30,"shadowSaturation":18,"highlightHue":40,"highlightSaturation":12,"balance":-10},"reasoning":"warm moody fall: lifted shadows, gentle punch, amber split-tone, boosted oranges/yellows"})`;
+Reply with JSON only.`;
 
 export function buildActionUserPrompt(
   userPrompt: string,
-  emotion: EmotionAnalysisT | null,
-  imageMood: ImageMoodAnalysisT | null,
+  emotion: string | null,
+  imageMood: string | null,
   current: GradingParams,
 ): string {
-  const lines: string[] = [];
-  lines.push(`USER PROMPT: ${userPrompt}`);
-  lines.push("");
-
-  if (emotion) {
-    lines.push(`EMOTION BRIEF (Agent 1):`);
-    lines.push(`- summary: ${emotion.summary}`);
-    lines.push(`- mood: ${emotion.mood_description}`);
-    if (emotion.detected_qualities.length) {
-      const q = emotion.detected_qualities
-        .map((dq) => `${dq.name}${dq.direction} (${dq.intensity})`)
-        .join(", ");
-      lines.push(`- qualities: ${q}`);
-    }
-    if (emotion.explicit_terms.length) {
-      lines.push(
-        `- terms: ` +
-          emotion.explicit_terms
-            .map((t) => `${t.term} → ${t.photographic_translation}`)
-            .join("; "),
-      );
-    }
-    if (emotion.caveats.length) {
-      lines.push(`- caveats: ${emotion.caveats.join("; ")}`);
-    }
-  } else {
-    lines.push(`EMOTION BRIEF: (analyst failed — infer from raw user prompt)`);
-  }
-  lines.push("");
-
-  if (imageMood) {
-    lines.push(`IMAGE BRIEF (Agent 2):`);
-    lines.push(`- summary: ${imageMood.summary}`);
-    lines.push(`- personality: ${imageMood.visual_personality}`);
-    const safe = imageMood.modification_guidance.safe_directions;
-    const risky = imageMood.modification_guidance.risky_directions;
-    if (safe.length) lines.push(`- safe: ${safe.join("; ")}`);
-    if (risky.length) lines.push(`- risky: ${risky.join("; ")}`);
-    if (imageMood.modification_guidance.notes) {
-      lines.push(`- notes: ${imageMood.modification_guidance.notes}`);
-    }
-  } else {
-    lines.push(`IMAGE BRIEF: (analyst failed — no image-aware guidance)`);
-  }
-  lines.push("");
-
-  lines.push(`Current settings: ${summariseParams(current)}`);
-  return lines.join("\n");
+  return [
+    `USER: ${userPrompt}`,
+    `EMOTION: ${emotion ?? "(analyst failed — infer from user prompt)"}`,
+    `IMAGE: ${imageMood ?? "(analyst failed — no image-aware guidance)"}`,
+    `CURRENT: ${summariseParams(current)}`,
+  ].join("\n");
 }

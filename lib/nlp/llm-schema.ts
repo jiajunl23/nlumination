@@ -20,8 +20,12 @@ import {
   type HueBand,
 } from "@/lib/grading/params";
 
-const num = (min: number, max: number) =>
-  z.number().min(min).max(max).optional();
+// Without strict json_schema decoding (we now use json_object mode for the
+// LLM-mode call to save ~262 input tokens), the model can occasionally
+// emit out-of-range numbers. We accept anything numeric here and clamp in
+// mergeDelta — ranges stay documented in the JSON Schema mirror below.
+// `_min` / `_max` are kept as parameter names for self-documentation.
+const num = (_min: number, _max: number) => z.number().optional();
 
 const HslDeltaSchema = z
   .object({

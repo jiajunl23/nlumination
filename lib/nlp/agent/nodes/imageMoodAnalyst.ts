@@ -1,33 +1,19 @@
 import "server-only";
 import OpenAI from "openai";
-import type { ChatCompletionTool } from "openai/resources/chat/completions";
 import { getGroq, GROQ_MODEL } from "../groq";
-import { SYSTEM_PROMPT_IMAGE_MOOD, buildImageMoodUserPrompt } from "../prompts";
 import {
-  ImageMoodAnalysis,
-  IMAGE_MOOD_ANALYSIS_JSON_SCHEMA,
-} from "../schemas";
+  SYSTEM_PROMPT_IMAGE_MOOD,
+  buildImageMoodUserPrompt,
+} from "../prompts";
 import type { AgentState } from "../state";
 
-// Output via a forced tool call rather than `response_format: json_schema`.
-// See emotionAnalyst.ts for the rationale — Groq's response_format decoder
-// is flaky on this analyst's nested output, while tool-arg constrained
-// decoding is reliable.
-const SUBMIT_TOOL_NAME = "submitImageMoodAnalysis";
-const SUBMIT_TOOL: ChatCompletionTool = {
-  type: "function",
-  function: {
-    name: SUBMIT_TOOL_NAME,
-    description:
-      "Submit your image-mood analysis. The args of this call ARE the final answer.",
-    parameters: IMAGE_MOOD_ANALYSIS_JSON_SCHEMA,
-  },
-};
-
 /**
- * Single-shot LLM call: ImageStats + currentParams → structured image-mood
- * analysis JSON. Failure leaves state.imageMood at null; A3 will continue
- * without image-aware guidance.
+ * A2 — image mood analyst. Reads pre-computed ImageStats and emits ONE
+ * sentence describing the photo's current character + headroom. Plain
+ * chat completion, no tool call.
+ *
+ * Failure → state.imageMood stays null; A3 still has the raw user prompt
+ * and can either guess or stay conservative.
  */
 export async function imageMoodAnalyst(state: AgentState): Promise<void> {
   const groq = getGroq();
@@ -44,53 +30,33 @@ export async function imageMoodAnalyst(state: AgentState): Promise<void> {
     const completion = await groq.chat.completions.create({
       model: GROQ_MODEL,
       temperature: 0.2,
-      max_tokens: 2048,
+      // See emotionAnalyst.ts — must accommodate hidden reasoning + visible.
+      max_tokens: 320,
+      reasoning_effort: "low",
       messages: [
         { role: "system", content: SYSTEM_PROMPT_IMAGE_MOOD },
         {
           role: "user",
-          content: buildImageMoodUserPrompt(
-            state.imageStats,
-            state.currentParams,
-          ),
+          content: buildImageMoodUserPrompt(state.imageStats),
         },
       ],
-      tools: [SUBMIT_TOOL],
-      tool_choice: {
-        type: "function",
-        function: { name: SUBMIT_TOOL_NAME },
-      },
     });
     state.callCount += 1;
 
-    const tc = completion.choices[0]?.message.tool_calls?.find(
-      (t): t is Extract<typeof t, { type: "function" }> =>
-        t.type === "function" && t.function.name === SUBMIT_TOOL_NAME,
-    );
-    if (!tc) throw new Error("image mood analyst returned no tool call");
-    const parsed = JSON.parse(tc.function.arguments || "{}");
-    const validated = ImageMoodAnalysis.parse(parsed);
-    state.imageMood = validated;
+    const text = completion.choices[0]?.message.content?.trim() ?? "";
+    if (!text) throw new Error("empty image-mood response");
+    state.imageMood = text;
     state.trace.push({
       node: "imageMoodAnalyst",
       ok: true,
-      summary: validated.summary,
+      summary: text.slice(0, 160),
     });
   } catch (err) {
     if (err instanceof OpenAI.APIError) {
-      // Capture failed_generation when Groq's JSON-schema validator
-      // rejects — it's the only way to see what the model actually
-      // emitted before Groq dropped it on the floor.
-      const errBody = (err as { error?: unknown }).error as
-        | { failed_generation?: string }
-        | undefined;
       console.error(
         "[imageMoodAnalyst] Groq APIError:",
         err.status,
         err.message,
-        errBody?.failed_generation
-          ? `\nfailed_generation: ${errBody.failed_generation.slice(0, 800)}`
-          : "",
       );
     } else {
       console.error("[imageMoodAnalyst] error:", err);
