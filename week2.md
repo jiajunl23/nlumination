@@ -364,6 +364,30 @@ components/editor/ChatPanel.tsx             (rewritten) 3-way toggle, budget UI,
 - **Failure modes are covered.** Three independent Groq errors hit during E2E testing; all three were absorbed by fallback layers without breaking the editor.
 - **Zero new dependencies.** No `langchain`, no `langgraph`, no `ai`. The orchestration is ~30 lines of TypeScript — cheap to read, cheap to maintain, easy to evolve.
 
+## Post-launch fixes (commits `d9fe5ce`, `4c0aadf`, `798465b`)
+
+The first day with the agents pipeline live exposed three more issues that the dev-environment Playwright pass missed. Each one is small but instructive:
+
+### A2 still rejected as "Failed to validate JSON" in production
+
+Even after `required` and `minLength` were dropped from the JSON Schema mirrors, `imageMoodAnalyst` kept hitting `400 Failed to validate JSON`. The remaining gatekeeper turned out to be `additionalProperties: false`: the 20B model occasionally invents extra fields (`confidence`, `analysis_complete`, …) and Groq's validator rejects the whole response on contact, before our code ever sees it.
+
+The fix was to drop `additionalProperties: false` from both analyst JSON Schema mirrors and to switch the Zod schemas from `.strict()` to the default `.strip()`. The contract is now genuinely *permissive at the wire, strict at the boundary*: the JSON Schema only describes the shape we *want* to see, Zod silently drops anything extra, and `.optional().default()` backfills missing fields. We also started capturing `err.error.failed_generation` (up to 800 chars) in the analyst logs so the next reject is debuggable from Vercel logs instead of an opaque 400.
+
+### "Agents thinking… → Agents unavailable" with no further detail
+
+Agents mode runs 3-4 sequential Groq calls. On Vercel's Hobby tier, Route Handlers default to a 10-second timeout — enough for a normal run but tight on cold starts. When the route timed out, the user saw a generic "Agents unavailable" with no trace and no clue what stage had stalled.
+
+Two changes addressed this. The route now explicitly sets `export const maxDuration = 60`, so we have comfortable headroom regardless of cold-start latency. And ChatPanel's failure path now passes `ai.trace` through to the displayed message — even when the response is "Agents unavailable", the user (and we) can see the analyst breadcrumbs (🧠 Analyzed emotion / 🖼️ Image analyst failed / ↩ Fell back …) up to wherever it stopped.
+
+### Action agent only touched 5–7 fields when 12+ were warranted
+
+A user reported that even with the agents pipeline working, complex prompts ("subtle warm glow, slightly faded") only produced 5 adjustments. Investigating, A3's SYSTEM_PROMPT had inherited single-shot's "stay subtle by default; pick fields that match what the user actually said" guidance — sensible for single-shot (no analyst context, conservative is safer) but wasteful for agents (we paid for two analyst briefs and then asked A3 to ignore most of what they said).
+
+We rewrote A3's decision rules to push the opposite direction: compound emotional prompts (vintage, moody, cinematic, golden hour, nordic, polaroid …) should reach 8–14 fields working together — across white-balance, light, presence, at least one hsl band that matches the subject, AND splitToning's shadow + highlight sides. Single-axis prompts ("warmer") still legitimately stay 1–2 fields. We also added a magnitude calibration ("subtle" → ±5–10, "moderate" → ±15–25, "strong" → ±30–50; exposure ±0.1/0.3/0.7) and swapped the worked example from a 7-field delta to a 14-field one so the 20B model's in-context learning sees what "complete look" really means.
+
+LLM mode was deliberately *not* changed: without analyst context, the conservative default is still safer. Word matching is rule-based and lives on its own track — extending it requires editing `intents.ts`/`modifiers.ts` rather than tweaking a prompt.
+
 ## What's next (still planned)
 
 - **Streaming the action agent's tokens** so the trace lines feel even faster.
