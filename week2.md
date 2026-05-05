@@ -487,3 +487,100 @@ The `saveEdit()` function (which used to overwrite) is no longer called from the
 - **The agents architecture got simpler, not just cheaper.** Two whole files deleted, ReAct loop gone, tool dispatch gone. Easier to read, easier to debug, fewer ways to fail.
 - **Failure modes still graceful.** Verified live: A2 returning empty content during the bug-hunt phase, the route fell through to A3 with `imageMood = null` and A3 still emitted a valid 10-field delta from the raw prompt + emotion sentence.
 - **Gallery now actually shows what you saved.** Multiple iterations of the same photo coexist as distinct cards. The pixels in the cloud are exactly what the user clicked Save on.
+
+---
+
+# Week 2 (continued, third pass) — Parallel-agent UI/UX overhaul
+
+After the token-budget overhaul stabilised, we did something new: instead of me (the orchestrator) hand-coding the next round of changes, I set up infrastructure for **parallel sub-agents** to do it. Three pages (landing / editor / gallery) needed independent UI/UX upgrades, and the work was file-isolated enough to fan out.
+
+This is more LangGraph-meets-software-engineering than the agents-mode pipeline: real Claude Code agents in real git worktrees, doing real PRs.
+
+## The infrastructure (commits `e2209cc`, `12ef429`)
+
+Two safety gates landed first:
+
+- **Pre-commit (`.husky/pre-commit`)**: `pnpm run typecheck` runs before every commit on every branch, including the parallel agents'. If it fails, the commit is rejected. No agent can land code that doesn't compile.
+- **CI (`.github/workflows/ci.yml`)**: GitHub Actions runs `typecheck + build` on every PR and push to main. Build needs every env var set (Clerk / Neon / Groq / Cloudinary), but placeholders are fine for the static check.
+
+I also installed a `.board/` directory with a README documenting the parallel-agent rules: read `AGENTS.md`, branch naming (`feature/ticket-NNN-<slug>`), don't push, update Status section when done.
+
+## The first attempt (lessons)
+
+I picked three placeholder tickets myself (curve UI / BYO Groq key / status diagnostics) without confirming they were the user's priorities. The user pushed back — fairly — and asked me to remove my unilateral picks AND the unilateral "What's next" lists I'd been appending to this very document for weeks. Both got reverted.
+
+Then the user assigned a real round: improve the landing / editor / gallery pages. That second batch worked.
+
+## The three real tickets
+
+1. **TICKET-101 — Landing page glow-up** (`feature/ticket-101-landing-glow-up`)
+   - More animations, more button styles, surface our LLM/agents capability prominently.
+   - Files: `app/page.tsx`, `app/landing.module.css` (new), `components/landing/{ModeShowcase,AnimatedPromptTicker}.tsx` (new).
+2. **TICKET-102 — Editor background warmth** (`feature/ticket-102-editor-bg-warmth`)
+   - Layout pixel-identical (user spent many sessions tuning it), but the editor "felt almost all black" because opaque panels hid the shared `.bg-waves`. Make panels translucent so atmosphere bleeds through.
+   - Files: `app/editor/page.tsx`, `components/editor/{ChatPanel,EditorRoot}.tsx` (cosmetic className changes only), `components/editor/editor.module.css` (new).
+3. **TICKET-103 — Gallery layout + background rebuild** (`feature/ticket-103-gallery-rebuild`)
+   - Plain 4-col grid → masonry + atmosphere + Pinterest/Apple-Photos card polish.
+   - Files: `app/gallery/page.tsx`, `components/gallery/{GalleryGrid,PhotoCard}.tsx`, `components/gallery/gallery.module.css` (new).
+
+Each ticket file in `.board/` had its own scope, file white/blacklist, acceptance criteria, and verification steps — written so a fresh agent without our chat context could pick it up.
+
+## The conflict-avoidance trick
+
+All three tickets shared two files in principle: `app/globals.css` (theme + `.bg-waves`) and `app/layout.tsx` (the `<div class="bg-waves">` host). If three agents had wanted to add page-specific animations, they'd all have reached for `globals.css` and clobbered each other.
+
+The rule: **no agent touches shared files**. Each gets a page-local `*.module.css` (`landing.module.css`, `editor.module.css`, `gallery.module.css`) for keyframes and atmospheric tricks. CSS Modules give scoped class names so there's no naming-collision risk either. Cross-branch overlap on file names ended up at exactly **zero** — verified before merging.
+
+## What broke (and how)
+
+The first parallel run had real growing pains:
+
+1. **Worktree base lag.** Sub-agents got worktrees rooted at `origin/main`, not local main. So every commit I'd made locally but hadn't pushed (the `.board/` ticket files themselves) wasn't visible to the agents. They were trying to read `.board/TICKET-101-landing-glow-up.md` and finding nothing. The fix was to push everything to origin first, then spawn — which required user authorization for the push.
+2. **Worktree isolation breakdown.** When agents spawned in parallel, the worktree-creation calls raced and the main worktree's HEAD got switched into one of the feature branches mid-flight. Files from in-progress agent work appeared as uncommitted changes in my main worktree. Force-removing the phantom worktrees + `git worktree prune` cleaned it up, but only after several confusing minutes.
+3. **Pre-commit hook missing in worktrees.** Same root cause — old base — meant the `.husky/pre-commit` file wasn't there. One agent realised this mid-flight and almost edited package.json to "fix" the worktree. I caught it before any damage; in the second attempt (with proper origin sync) the hook worked correctly.
+
+The second attempt — push first, *then* spawn — worked clean. All three agents finished within 6-7 minutes wall-clock.
+
+## What the agents actually shipped
+
+Verified after merge:
+
+| PR | Sub-agent commits | Files | Δ Lines |
+| --- | --- | --- | --- |
+| #1 (101) | 4 | 4 | +558 / -30 |
+| #2 (102) | 3 | 5 | +166 / -9 |
+| #3 (103) | 4 | 4 | +601 / -45 |
+
+**Cross-overlap check**: zero shared files between branches. Three-way merge to main was conflict-free.
+
+A small follow-up landed on top — the user looked at the merged gallery and decided the "featured-first hero card" (most-recent photo blown up) was distracting. PR #4 dropped it: every card in the masonry is uniform sized now. Net diff +12 / −104 (mostly removing the hero CSS + the `featured` prop plumbing).
+
+## Numbers (this pass)
+
+| | Before this round | After |
+| --- | --- | --- |
+| Sub-agent infrastructure | none | `.husky/pre-commit` + GitHub Actions CI + `.board/` |
+| Parallel sub-agent runs | 0 | 6 (3 attempt-1 stopped, 3 attempt-2 finished) |
+| Wall-clock for 3 features (attempt 2) | (sequentially: ~30 min if I did them) | **~7 min in parallel + ~3 min review** |
+| PRs opened + merged | 0 | 4 (TICKET-101, 102, 103, 104) |
+| Total Δ across the four PRs | — | +1,337 insertions / −188 deletions |
+| Shared file conflicts | n/a | 0 |
+| Manual conflict resolutions during merge | n/a | 0 |
+
+## What worked, what didn't
+
+**Worked**:
+- File-isolation rule. Every agent stayed in its lane; merging was three-way fast-forward with zero hand-resolution.
+- Pre-commit + CI gates. Every commit that landed on a feature branch typechecked. CI caught the prod-build path on PR open.
+- Self-contained ticket files. Sub-agents read their ticket and went — I didn't have to ferry context between them and me.
+- Sub-agent reports. Every one finished by appending a `## Status` section to its ticket file with what shipped, what was skipped, judgment calls. Easier to review than diffs alone.
+
+**Didn't work the first time**:
+- Spawning before pushing. Worktrees rooted on origin, not local — fix is mechanical (push first) but it bit us.
+- Treating "stop the agent" as recoverable. The first round's stopped agents left half-done work in worktrees that don't auto-clean cleanly; we had to trash the branches and re-spawn from scratch.
+
+## What this proves
+
+The agents-mode NL pipeline (Week 2 part 2) was an *interpreter* of user intent inside one HTTP request. This week's experiment is a *delegator* of engineering work across multiple wall-clock minutes. Different problem, similar primitive: structured-state shared between independent processes that read it, mutate it, write it back.
+
+The three UI surfaces are now substantially nicer than they were 30 minutes ago, and I (the orchestrator) didn't write the implementing code for any of them. The infrastructure that enables this — pre-commit gate, CI gate, `.board/`, worktree isolation, the ticket-file convention — is now reusable for every future round.
