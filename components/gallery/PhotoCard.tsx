@@ -12,15 +12,13 @@
  *    "open this photo in the editor" entry point for the whole app.
  *  - The onDelete wiring — parent owns optimistic state.
  *
- * Visual goals (TICKET-103):
+ * Visual goals:
  *  - Pinterest / Apple-Photos polish: lifted hover, gradient scrim that
  *    reveals filename + dims, larger tap-friendly delete button.
- *  - "Featured" variant for the hero card (gradient border, shimmer
- *    badge) — opted into via the `featured` prop from the grid.
  */
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Trash2, Sparkles } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { Pipeline } from "@/lib/webgl/pipeline";
 import type { GradingParams } from "@/lib/grading/params";
 import styles from "./gallery.module.css";
@@ -32,7 +30,6 @@ type Props = {
   width: number;
   height: number;
   params: GradingParams;
-  featured?: boolean;
   onDelete?: (id: string) => void;
 };
 
@@ -43,7 +40,6 @@ export function PhotoCard({
   width,
   height,
   params,
-  featured = false,
   onDelete,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -85,19 +81,8 @@ export function PhotoCard({
   const aspect = width / Math.max(1, height);
   const dims = `${width} × ${height}`;
 
-  const shellClass = [styles.cardShell, featured ? styles.cardFeatured : ""]
-    .filter(Boolean)
-    .join(" ");
-
   return (
-    <div className={shellClass}>
-      {featured && (
-        <span className={styles.featuredBadge}>
-          <Sparkles className="h-3 w-3" />
-          Latest
-        </span>
-      )}
-
+    <div className={styles.cardShell}>
       <Link
         href={`/editor?photoId=${id}`}
         className="relative block"
