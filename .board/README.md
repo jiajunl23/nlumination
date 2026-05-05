@@ -23,6 +23,12 @@ worktree without our chat context.
 
 ## Active tickets
 
-| ID  | Title | Status |
-| --- | ----- | ------ |
-| —   | (none yet — add `TICKET-NNN-<slug>.md` files here when assigning work) | — |
+| ID         | Title                                            | Status     |
+| ---------- | ------------------------------------------------ | ---------- |
+| TICKET-101 | Landing page glow-up (animation + LLM showcase)  | pending    |
+| TICKET-102 | Editor background warmth (no layout change)      | pending    |
+| TICKET-103 | Gallery layout + background rebuild              | pending    |
+
+**No-touch zone for this batch**: `app/globals.css`, `app/layout.tsx`.
+Both are shared across all three pages — agents must use page-local
+CSS modules instead.
