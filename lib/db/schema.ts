@@ -73,7 +73,25 @@ export const llmUsage = pgTable(
   (t) => [primaryKey({ columns: [t.userId, t.day] })],
 );
 
+// User-saved looks. Each row is a named GradingParams snapshot the user
+// can apply to any photo with one click. Built-in presets in
+// lib/nlp/presets.ts are separate and not stored here — they're code.
+export const userPresets = pgTable(
+  "user_presets",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    params: jsonb("params").notNull().$type<GradingParams>(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("user_presets_user_id_idx").on(t.userId, t.createdAt)],
+);
+
 export type DBUser = typeof users.$inferSelect;
 export type DBPhoto = typeof photos.$inferSelect;
 export type DBEdit = typeof edits.$inferSelect;
 export type DBLlmUsage = typeof llmUsage.$inferSelect;
+export type DBUserPreset = typeof userPresets.$inferSelect;

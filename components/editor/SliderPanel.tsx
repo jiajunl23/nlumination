@@ -5,6 +5,7 @@ import { Section } from "@/components/ui/Section";
 import { HSLPanel } from "./HSLPanel";
 import { ToneCurveEditor } from "./ToneCurveEditor";
 import { SplitToningPanel } from "./SplitToningPanel";
+import { MyPresets } from "./MyPresets";
 import { DEFAULT_PARAMS, type GradingParams } from "@/lib/grading/params";
 
 type Props = {
@@ -17,7 +18,9 @@ export function SliderPanel({ params, onChange }: Props) {
     onChange({ ...params, [key]: val });
 
   return (
-    <div className="px-4 py-1">
+    <div>
+      <MyPresets params={params} onApply={onChange} />
+      <div className="px-4 py-1">
       <Section
           title="Light"
           onReset={() =>
@@ -253,6 +256,7 @@ export function SliderPanel({ params, onChange }: Props) {
         </Section>
 
       <div className="h-6" />
+      </div>
     </div>
   );
 }
