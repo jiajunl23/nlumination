@@ -107,6 +107,10 @@ purple|magenta}.{hue,saturation,luminance}; splitToning.{shadowHue 0..360,
 shadowSaturation 0..100, highlightHue 0..360, highlightSaturation 0..100,
 balance -100..100}; reasoning (≤160 chars, plain summary).
 
+CRITICAL: hsl bands are EXACTLY these 8: red, orange, yellow, green, aqua,
+blue, purple, magenta. Use **aqua** (NOT cyan), **magenta** (NOT pink). Any
+other band name will be silently dropped.
+
 Magnitude rules: subtle ±5–10 (exposure ±0.1), moderate ±15–25 (exp ±0.3),
 strong ±30–50 (exp ±0.7). Compound looks (vintage, cinematic, golden hour,
 nordic, polaroid…) usually want 8–14 fields working together: white-balance
