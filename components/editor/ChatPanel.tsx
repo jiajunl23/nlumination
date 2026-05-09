@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Sparkles, Send, Loader2, Wand2, Bot } from "lucide-react";
+import { Sparkles, Send, Loader2, Wand2, Bot, Key } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
 import { parsePrompt } from "@/lib/nlp/parser";
+import { SettingsPopover } from "./SettingsPopover";
+import { useGroqApiKey } from "@/lib/nlp/useGroqApiKey";
 import { suggestForUnmatched } from "@/lib/nlp/fallback";
 import { suggestionFor, summarizeApplied } from "@/lib/nlp/summary";
 import { hasDelta, mergeDelta, type LLMDeltaT } from "@/lib/nlp/llm-schema";
@@ -14,14 +16,25 @@ import {
   DAILY_LLM_LIMIT,
   normalizeStoredMode,
 } from "@/lib/nlp/modes";
-import type { TraceEntry } from "@/lib/nlp/agent/state";
+import type { TraceEntry, TurnRecord } from "@/lib/nlp/agent/state";
 import type { ParseResult } from "@/lib/nlp/types";
 import type { GradingParams } from "@/lib/grading/params";
 import type { ImageStats } from "@/lib/grading/imageStats";
+import { prepareVlmImage } from "@/lib/grading/imageBlob";
 import { cn } from "@/lib/utils";
 import editorStyles from "./editor.module.css";
 
 type ExampleChip = { phrase: string; description: string };
+
+// Server may report quota as either the shared {used, limit} pair or
+// the BYO sentinel {unlimited: true}. Treat them as a discriminated
+// union everywhere on the client.
+type QuotaResponse =
+  | { used: number; limit: number }
+  | { unlimited: true };
+
+const isUnlimited = (q: QuotaResponse | null | undefined): q is { unlimited: true } =>
+  !!q && "unlimited" in q && q.unlimited === true;
 
 type Message =
   | { id: string; role: "user"; text: string }
@@ -35,7 +48,7 @@ type Message =
       text?: string;
       applied?: string[];
       reasoning?: string;
-      quota?: { used: number; limit: number };
+      quota?: QuotaResponse;
       hint?: string;
       tryChips?: ExampleChip[];
       trace?: TraceEntry[];
@@ -70,6 +83,11 @@ const ALL_EXAMPLES: ExampleChip[] = [
 const EXAMPLES_QUERY_RE =
   /^\s*(examples?|more|more examples?|show examples?|help|ideas?|inspire me)\s*$/i;
 const MODE_KEY = "nlumination.aiMode";
+// Versioned key — bumping the suffix invalidates persisted history if its
+// shape ever changes (e.g. LLMDelta gains a required field).
+const HISTORY_KEY = "nlumination.turnHistory:v1";
+// Soft cap on what we ship to server. Server enforces its own .max(50).
+const MAX_HISTORY_TURNS_TO_SEND = 50;
 
 function shuffledExamples(n = 6): ExampleChip[] {
   const arr = ALL_EXAMPLES.slice();
@@ -91,6 +109,12 @@ type Props = {
   params: GradingParams;
   onParams: (next: GradingParams) => void;
   stats?: ImageStats | null;
+  /** Loaded ImageBitmap, used to downsample for the VLM analyst when
+   *  the photo hasn't been saved (no Cloudinary URL) yet. */
+  source?: ImageBitmap | null;
+  /** Public Cloudinary CDN URL when the photo is saved. Preferred over
+   *  client-side base64 because it's cheaper to send. */
+  cloudinaryUrl?: string | null;
   layoutNonce?: number;
   className?: string;
 };
@@ -99,7 +123,7 @@ type LLMResponse =
   | {
       ok: true;
       delta: LLMDeltaT;
-      quota: { used: number; limit: number };
+      quota: QuotaResponse;
       trace?: TraceEntry[];
       downgraded?: boolean;
     }
@@ -115,12 +139,31 @@ async function callLLM(
   current: GradingParams,
   stats: ImageStats | null | undefined,
   mode: ServerMode,
+  history: readonly TurnRecord[],
+  apiKey: string | null,
+  imageUrl: string | null,
 ): Promise<LLMResponse> {
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    // BYO key — sent header-only (never in body) so it stays out of any
+    // log that captures POST payloads.
+    if (apiKey) headers["X-Groq-Key"] = apiKey;
+
     const res = await fetch("/api/nlp/interpret", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, current, stats: stats ?? null, mode }),
+      headers,
+      body: JSON.stringify({
+        prompt,
+        current,
+        stats: stats ?? null,
+        mode,
+        history: history.slice(-MAX_HISTORY_TURNS_TO_SEND),
+        // Server uses imageUrl only in agents mode; passing it on
+        // every request is fine, the route just ignores it for "llm".
+        imageUrl,
+      }),
     });
     if (res.status === 401) return { ok: false, reason: "auth" };
     if (res.status === 429) {
@@ -133,7 +176,7 @@ async function callLLM(
     }
     const body = (await res.json()) as {
       delta: LLMDeltaT;
-      quota: { used: number; limit: number };
+      quota: QuotaResponse;
       trace?: TraceEntry[];
       downgraded?: boolean;
     };
@@ -149,17 +192,41 @@ async function callLLM(
   }
 }
 
-export function ChatPanel({ params, onParams, stats, layoutNonce, className }: Props) {
+export function ChatPanel({
+  params,
+  onParams,
+  stats,
+  source,
+  cloudinaryUrl,
+  layoutNonce,
+  className,
+}: Props) {
   const { isSignedIn } = useAuth();
+  const { apiKey: userApiKey, hasKey: hasUserKey } = useGroqApiKey();
+  const apiKeyRef = useRef<string | null>(userApiKey);
+  apiKeyRef.current = userApiKey;
   const [value, setValue] = useState("");
   const [messages, setMessages] = useState<Message[]>([WELCOME]);
   const [mode, setMode] = useState<Mode>("auto");
-  const [quotaState, setQuotaState] = useState<{ used: number; limit: number } | null>(null);
+  const [quotaState, setQuotaState] = useState<QuotaResponse | null>(null);
+  // Conversation context. Each entry records {prompt, paramsBefore,
+  // delta, paramsAfter, ts}. Survives page reload via localStorage.
+  // Only LLM/agents turns are recorded — parser-only "Auto hits" don't
+  // produce a delta the model would benefit from seeing later.
+  const [turnHistory, setTurnHistory] = useState<TurnRecord[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
   const paramsRef = useRef(params);
   paramsRef.current = params;
   const statsRef = useRef(stats);
   statsRef.current = stats;
+  const sourceRef = useRef(source);
+  sourceRef.current = source;
+  const cloudinaryUrlRef = useRef(cloudinaryUrl);
+  cloudinaryUrlRef.current = cloudinaryUrl;
+  // Always-current ref so async submit() captures the latest history
+  // even if state updates are batched mid-await.
+  const historyRef = useRef(turnHistory);
+  historyRef.current = turnHistory;
 
   // Hydrate persisted mode after mount; "ai" → "llm" backward compat.
   useEffect(() => {
@@ -172,10 +239,46 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
     }
   }, []);
 
+  // Hydrate turn history. Stored shape is JSON-stringified TurnRecord[];
+  // parse defensively (any error → start fresh, don't crash mount).
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(HISTORY_KEY);
+      if (!saved) return;
+      const parsed: unknown = JSON.parse(saved);
+      if (!Array.isArray(parsed)) return;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setTurnHistory(parsed as TurnRecord[]);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const setModeAndPersist = (m: Mode) => {
     setMode(m);
     try {
       window.localStorage.setItem(MODE_KEY, m);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const pushTurn = (turn: TurnRecord) => {
+    setTurnHistory((prev) => {
+      const next = [...prev, turn];
+      try {
+        window.localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+      } catch {
+        /* ignore — quota/private mode */
+      }
+      return next;
+    });
+  };
+
+  const clearHistory = () => {
+    setTurnHistory([]);
+    try {
+      window.localStorage.removeItem(HISTORY_KEY);
     } catch {
       /* ignore */
     }
@@ -199,9 +302,15 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
     return () => clearTimeout(t);
   }, [layoutNonce]);
 
-  const remaining = quotaState
-    ? Math.max(0, quotaState.limit - quotaState.used)
-    : DAILY_LLM_LIMIT;
+  // BYO users get an unbounded budget — affordability checks should
+  // not gray out the LLM/Agents toggle just because we haven't seen a
+  // server response yet to confirm.
+  const remaining =
+    hasUserKey || (quotaState && isUnlimited(quotaState))
+      ? Number.POSITIVE_INFINITY
+      : quotaState
+        ? Math.max(0, quotaState.limit - quotaState.used)
+        : DAILY_LLM_LIMIT;
   const agentsAffordable = remaining >= MODE_COST.agents.estimated;
   const llmAffordable = remaining >= MODE_COST.llm.estimated;
 
@@ -257,7 +366,7 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
     before: GradingParams,
     next: GradingParams,
     delta: LLMDeltaT,
-    quota: { used: number; limit: number },
+    quota: QuotaResponse,
     opts: { agents?: boolean; trace?: TraceEntry[]; downgraded?: boolean } = {},
   ): Message => {
     const applied = summarizeApplied(before, next, []);
@@ -323,6 +432,15 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
             }),
           ),
         );
+        // Record turn so the next request can show this prompt+delta as
+        // prior context. Only LLM/agents turns are tracked.
+        pushTurn({
+          prompt: trimmed,
+          paramsBefore: before,
+          delta: ai.delta,
+          paramsAfter: next,
+          timestamp: ts,
+        });
         return true;
       }
       return false;
@@ -335,7 +453,30 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
         userMsg(ts, trimmed),
         thinkingMsg(ts, "Agents thinking…"),
       ]);
-      const ai = await callLLM(trimmed, before, statsRef.current, "agents");
+      // VLM prep — best effort. Saved photo → cheap CDN URL.
+      // Fresh upload → 384px JPEG base64. Failure here = analyst falls
+      // back to numeric stats server-side, which still works.
+      let vlmUrl: string | null = null;
+      if (sourceRef.current) {
+        try {
+          const v = await prepareVlmImage(
+            sourceRef.current,
+            cloudinaryUrlRef.current ?? null,
+          );
+          vlmUrl = v.url;
+        } catch {
+          // Ignore — server will fall back to numeric stats path.
+        }
+      }
+      const ai = await callLLM(
+        trimmed,
+        before,
+        statsRef.current,
+        "agents",
+        historyRef.current,
+        apiKeyRef.current,
+        vlmUrl,
+      );
       if (handleAfterAICall(ai, true, `a-${ts}`)) return;
 
       const failPrefix =
@@ -378,7 +519,15 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
         userMsg(ts, trimmed),
         thinkingMsg(ts, "AI thinking…"),
       ]);
-      const ai = await callLLM(trimmed, before, statsRef.current, "llm");
+      const ai = await callLLM(
+      trimmed,
+      before,
+      statsRef.current,
+      "llm",
+      historyRef.current,
+      apiKeyRef.current,
+      null,
+    );
       if (handleAfterAICall(ai, false, `a-${ts}`)) return;
 
       const failPrefix =
@@ -423,7 +572,15 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
       userMsg(ts, trimmed),
       thinkingMsg(ts, "AI thinking…"),
     ]);
-    const ai = await callLLM(trimmed, before, statsRef.current, "llm");
+    const ai = await callLLM(
+      trimmed,
+      before,
+      statsRef.current,
+      "llm",
+      historyRef.current,
+      apiKeyRef.current,
+      null,
+    );
     if (handleAfterAICall(ai, false, `a-${ts}`)) return;
 
     const prefix =
@@ -448,23 +605,46 @@ export function ChatPanel({ params, onParams, stats, layoutNonce, className }: P
           Prompt
         </div>
         {isSignedIn && (
-          <ModeToggle
-            mode={mode}
-            onChange={setModeAndPersist}
-            agentsAffordable={agentsAffordable}
-            llmAffordable={llmAffordable}
-          />
+          <div className="flex items-center gap-2">
+            <ModeToggle
+              mode={mode}
+              onChange={setModeAndPersist}
+              agentsAffordable={agentsAffordable}
+              llmAffordable={llmAffordable}
+            />
+            <SettingsPopover />
+          </div>
         )}
       </header>
 
       {isSignedIn && (
-        <div className="flex items-center justify-between border-b border-[var(--color-border)]/40 px-4 py-1.5 text-[10px] text-[var(--color-fg-dim)]">
-          <span>{MODE_COST[mode].hint}</span>
-          {quotaState && (
-            <span>
-              Calls used today: {quotaState.used}/{quotaState.limit}
-            </span>
-          )}
+        <div className="flex items-center justify-between gap-2 border-b border-[var(--color-border)]/40 px-4 py-1.5 text-[10px] text-[var(--color-fg-dim)]">
+          <span className="truncate">{MODE_COST[mode].hint}</span>
+          <div className="flex shrink-0 items-center gap-2">
+            {turnHistory.length > 0 && (
+              <button
+                type="button"
+                onClick={clearHistory}
+                className="rounded text-[var(--color-fg-dim)] transition hover:text-[var(--color-fg)]"
+                title="Forget prior turns. Refinements like 'a bit more' won't see context."
+              >
+                context: {turnHistory.length} × clear
+              </button>
+            )}
+            {hasUserKey ? (
+              <span className="inline-flex items-center gap-1 text-[var(--color-accent)]">
+                <Key className="h-2.5 w-2.5" />
+                Using your key (unlimited)
+              </span>
+            ) : (
+              quotaState &&
+              !isUnlimited(quotaState) && (
+                <span>
+                  Calls used today: {quotaState.used}/{quotaState.limit}
+                </span>
+              )
+            )}
+          </div>
         </div>
       )}
 
@@ -604,7 +784,17 @@ function traceToLines(trace: TraceEntry[]): string[] {
         out.push(t.ok ? "🧠 Analyzed emotion" : `🧠 Emotion analyst failed (${t.error ?? "unknown"})`);
         break;
       case "imageMoodAnalyst":
-        out.push(t.ok ? "🖼️ Read image" : `🖼️ Image analyst failed (${t.error ?? "unknown"})`);
+        if (t.ok) {
+          out.push(
+            t.path === "vlm"
+              ? "🖼️ Saw image (VLM)"
+              : "🖼️ Read image stats",
+          );
+        } else {
+          out.push(
+            `🖼️ Image analyst failed (${t.path ?? "?"}: ${t.error ?? "unknown"})`,
+          );
+        }
         break;
       case "actionAgent":
         if (t.ok) out.push("✨ Composed delta");
@@ -693,9 +883,14 @@ function AssistantMessage({
       {m.hint && (
         <div className="text-xs italic text-[var(--color-fg-dim)]">→ {m.hint}</div>
       )}
-      {m.quota && (
+      {m.quota && !isUnlimited(m.quota) && (
         <div className="text-[10px] text-[var(--color-fg-dim)]">
           Calls used today: {m.quota.used}/{m.quota.limit}
+        </div>
+      )}
+      {m.quota && isUnlimited(m.quota) && (
+        <div className="text-[10px] text-[var(--color-fg-dim)]">
+          Used your key (no quota charge)
         </div>
       )}
       {m.tryChips && m.tryChips.length > 0 && (

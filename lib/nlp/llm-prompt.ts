@@ -6,6 +6,8 @@
  */
 import type { GradingParams } from "@/lib/grading/params";
 import type { ImageStats } from "@/lib/grading/imageStats";
+import type { TurnRecord } from "@/lib/nlp/agent/state";
+import { summariseHistory } from "@/lib/nlp/history-summary";
 
 export const SYSTEM_PROMPT = `You are a photo-editing assistant. Convert the user's
 prompt into a JSON delta of color-grading parameters that REPLACES the current
@@ -80,6 +82,7 @@ export function buildUserPrompt(
   prompt: string,
   current: GradingParams,
   stats: ImageStats | null | undefined,
+  history: readonly TurnRecord[] = [],
 ): string {
   const lines = [
     `Current settings: ${summariseCurrent(current)}.`,
@@ -87,5 +90,7 @@ export function buildUserPrompt(
   const photo = summariseStats(stats);
   if (photo) lines.push(`Photo: ${photo}.`);
   lines.push(`User prompt: ${prompt}`);
+  const trail = summariseHistory(history);
+  if (trail) lines.push("", trail);
   return lines.join("\n");
 }

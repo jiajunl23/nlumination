@@ -21,15 +21,45 @@ import type { LLMDeltaT } from "@/lib/nlp/llm-schema";
  */
 export type TraceEntry =
   | { node: "emotionAnalyst"; ok: boolean; summary?: string; error?: string }
-  | { node: "imageMoodAnalyst"; ok: boolean; summary?: string; error?: string }
+  | {
+      node: "imageMoodAnalyst";
+      ok: boolean;
+      /** "vlm" if Llama-4-Scout was tried, "stats" if numeric ImageStats. */
+      path?: "vlm" | "stats";
+      summary?: string;
+      error?: string;
+    }
   | { node: "actionAgent"; ok: boolean; summary?: string; error?: string }
   | { node: "fallback"; reason: string };
+
+/**
+ * One prior turn's worth of context. The client tracks these in the
+ * editor session and ships the most recent N (after server-side trim)
+ * with each request so refinements ("warmer still", "undo that contrast")
+ * read as part of a chain rather than a fresh prompt.
+ */
+export interface TurnRecord {
+  prompt: string;
+  paramsBefore: GradingParams;
+  delta: LLMDeltaT;
+  paramsAfter: GradingParams;
+  timestamp: number;
+}
 
 export interface AgentState {
   // ── Inputs (read-only after init) ──────────────────────────────
   userPrompt: string;
   currentParams: GradingParams;
   imageStats: ImageStats | null;
+  history: TurnRecord[];
+  /** BYO Groq key, threaded from request header. Null = use shared env. */
+  userApiKey: string | null;
+  /**
+   * Image source for the VLM analyst. Either a Cloudinary CDN URL (saved
+   * photo) or a `data:image/jpeg;base64,...` blob (fresh upload). Null =
+   * imageMoodAnalyst falls back to the numeric ImageStats path.
+   */
+  imageUrl: string | null;
 
   // ── Analyst outputs ────────────────────────────────────────────
   // A1 returns 1-2 sentences describing emotional/aesthetic intent.
@@ -53,6 +83,9 @@ export interface InitialStateInput {
   userPrompt: string;
   currentParams: GradingParams;
   imageStats: ImageStats | null;
+  history?: TurnRecord[];
+  userApiKey?: string | null;
+  imageUrl?: string | null;
 }
 
 export function initialState(input: InitialStateInput): AgentState {
@@ -60,6 +93,9 @@ export function initialState(input: InitialStateInput): AgentState {
     userPrompt: input.userPrompt,
     currentParams: input.currentParams,
     imageStats: input.imageStats,
+    history: input.history ?? [],
+    userApiKey: input.userApiKey ?? null,
+    imageUrl: input.imageUrl ?? null,
     emotionAnalysis: null,
     imageMood: null,
     finalDelta: null,

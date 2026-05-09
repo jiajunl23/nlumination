@@ -12,6 +12,12 @@
  * Auto-downgrade: if `mode: agents` is requested but the user has
  * fewer than agents.estimated calls left, we transparently downgrade
  * to llm and return `downgraded: true` so the UI can flag it.
+ *
+ * BYO key: a user-supplied Groq key may arrive in the `X-Groq-Key`
+ * header. When set + valid format, we use it for every Groq call this
+ * request makes and SKIP both quota check and quota increment — their
+ * key, their tokens. The key is read directly into a per-request
+ * client; **never forwarded, logged, or persisted**.
  */
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -22,10 +28,16 @@ import { SYSTEM_PROMPT, buildUserPrompt } from "@/lib/nlp/llm-prompt";
 import { DAILY_LLM_LIMIT, MODE_COST, type ServerMode } from "@/lib/nlp/modes";
 import { getRemaining, incrementUsage } from "@/lib/nlp/quota";
 import { runAgentsPipeline } from "@/lib/nlp/agent/graph";
-import { getGroq, GROQ_MODEL } from "@/lib/nlp/agent/groq";
+import {
+  getGroq,
+  getGroqForKey,
+  GROQ_MODEL,
+} from "@/lib/nlp/agent/groq";
+import { isValidGroqKey } from "@/lib/nlp/groq-key";
 import type { GradingParams } from "@/lib/grading/params";
 import type { ImageStats } from "@/lib/grading/imageStats";
-import type { TraceEntry } from "@/lib/nlp/agent/state";
+import type { TraceEntry, TurnRecord } from "@/lib/nlp/agent/state";
+import { summariseHistory } from "@/lib/nlp/history-summary";
 
 // Vercel default Route Handler timeout is 10s on the Hobby tier. Agents
 // mode runs 3-4 sequential Groq calls (A1 ‖ A2 → A3, ±applyPreset) and
@@ -34,12 +46,43 @@ import type { TraceEntry } from "@/lib/nlp/agent/state";
 // either way so the higher cap is harmless.
 export const maxDuration = 60;
 
+const HistoryEntry = z.object({
+  prompt: z.string().min(1).max(500),
+  paramsBefore: z.unknown(),
+  delta: z.unknown(),
+  paramsAfter: z.unknown(),
+  timestamp: z.number(),
+});
+
 const Body = z.object({
   prompt: z.string().min(1).max(500),
   current: z.unknown(),
   stats: z.unknown().optional().nullable(),
   mode: z.enum(["llm", "agents"]).default("llm"),
+  // Up to 50 turn-records ride along; route trims to a char budget before
+  // injecting into prompts so an unbounded session doesn't blow context.
+  history: z.array(HistoryEntry).max(50).optional().default([]),
+  // Either a Cloudinary CDN URL (saved photo) or a base64 data URL
+  // (fresh upload, downsampled to 384px). Cap at 200KB to bound payload
+  // size; only the agents pipeline uses this — LLM mode ignores it.
+  imageUrl: z.string().max(200_000).optional().nullable(),
 });
+
+/**
+ * Drop oldest turns until the rendered history fits maxChars. Defence-
+ * in-depth: client *also* limits how many it sends, but never trust
+ * the client.
+ */
+function trimHistory(
+  history: readonly TurnRecord[],
+  maxChars = 6000,
+): TurnRecord[] {
+  let kept = history.slice();
+  while (kept.length > 0 && summariseHistory(kept).length > maxChars) {
+    kept = kept.slice(1); // drop oldest
+  }
+  return kept;
+}
 
 interface SingleShotResult {
   delta: LLMDeltaT | null;
@@ -51,8 +94,12 @@ async function singleShotFallback(input: {
   prompt: string;
   current: GradingParams;
   stats: ImageStats | null;
+  history: readonly TurnRecord[];
+  userApiKey: string | null;
 }): Promise<SingleShotResult> {
-  const groq = getGroq();
+  const groq = input.userApiKey
+    ? getGroqForKey(input.userApiKey)
+    : getGroq();
   if (!groq) return { delta: null, callCount: 0, error: "groq_not_configured" };
 
   try {
@@ -71,7 +118,12 @@ async function singleShotFallback(input: {
         { role: "system", content: SYSTEM_PROMPT },
         {
           role: "user",
-          content: buildUserPrompt(input.prompt, input.current, input.stats),
+          content: buildUserPrompt(
+            input.prompt,
+            input.current,
+            input.stats,
+            input.history,
+          ),
         },
       ],
     });
@@ -92,17 +144,44 @@ async function singleShotFallback(input: {
 
 export async function POST(req: Request) {
   try {
-    if (!getGroq()) {
+    const userId = await requireDbUser();
+
+    // BYO key path. Read header *before* the env-key existence check so
+    // a user can use the app even when GROQ_API_KEY isn't set in our env.
+    const headerKey = req.headers.get("X-Groq-Key");
+    let userApiKey: string | null = null;
+    if (headerKey !== null && headerKey !== "") {
+      if (!isValidGroqKey(headerKey)) {
+        return NextResponse.json(
+          { error: "Invalid Groq key format", code: "key_format" },
+          { status: 400 },
+        );
+      }
+      userApiKey = headerKey;
+    }
+
+    // Need at least one viable key (env-shared OR user-supplied). Fail
+    // fast otherwise so we don't run through quota accounting only to
+    // discover no client can be built.
+    if (!userApiKey && !getGroq()) {
       return NextResponse.json(
         { error: "AI not configured", code: "not_configured" },
         { status: 503 },
       );
     }
 
-    const userId = await requireDbUser();
-    const { prompt, current, stats, mode } = Body.parse(await req.json());
+    const { prompt, current, stats, mode, history, imageUrl } = Body.parse(
+      await req.json(),
+    );
 
-    const remaining = await getRemaining(userId);
+    // Trim before any LLM call so prompt-side cost stays bounded.
+    const trimmedHistory = trimHistory(history as TurnRecord[]);
+
+    // Quota only applies to the shared env key. BYO users burn their
+    // own Groq tokens, so we don't gate or count.
+    const remaining = userApiKey
+      ? Number.POSITIVE_INFINITY
+      : await getRemaining(userId);
 
     let actualMode: ServerMode = mode;
     let downgraded = false;
@@ -142,6 +221,9 @@ export async function POST(req: Request) {
         userPrompt: prompt,
         currentParams: current as GradingParams,
         imageStats: (stats ?? null) as ImageStats | null,
+        history: trimmedHistory,
+        userApiKey,
+        imageUrl: imageUrl ?? null,
       });
       trace = state.trace;
       callCount += state.callCount;
@@ -156,6 +238,8 @@ export async function POST(req: Request) {
             prompt,
             current: current as GradingParams,
             stats: (stats ?? null) as ImageStats | null,
+            history: trimmedHistory,
+            userApiKey,
           });
           callCount += fb.callCount;
           if (fb.delta) {
@@ -169,6 +253,8 @@ export async function POST(req: Request) {
         prompt,
         current: current as GradingParams,
         stats: (stats ?? null) as ImageStats | null,
+        history: trimmedHistory,
+        userApiKey,
       });
       callCount += fb.callCount;
       if (fb.delta) delta = fb.delta;
@@ -176,8 +262,14 @@ export async function POST(req: Request) {
     }
 
     if (callCount > 0) {
-      const newCount = await incrementUsage(userId, callCount);
-      const quota = { used: newCount, limit: DAILY_LLM_LIMIT };
+      // BYO requests don't burn shared quota. Send a sentinel `unlimited`
+      // so the client can swap the badge UI.
+      const quota = userApiKey
+        ? { unlimited: true as const }
+        : {
+            used: await incrementUsage(userId, callCount),
+            limit: DAILY_LLM_LIMIT,
+          };
       if (delta) {
         return NextResponse.json({ delta, quota, trace, downgraded });
       }

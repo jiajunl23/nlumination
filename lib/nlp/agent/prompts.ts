@@ -17,6 +17,8 @@
 
 import type { GradingParams } from "@/lib/grading/params";
 import type { ImageStats } from "@/lib/grading/imageStats";
+import type { TurnRecord } from "./state";
+import { summariseHistory } from "@/lib/nlp/history-summary";
 
 // ────────────────────────────────────────────────────────────────────────
 // Agent 1 — Emotion Analyst (free-form text output)
@@ -35,8 +37,14 @@ Example:
 USER: "moody and contemplative, but not too dark — like late autumn afternoon"
 YOU: Subdued reflective mood with warm late-afternoon character; raised shadows for openness rather than crushed darkness; warm-leaning fall vibe.`;
 
-export function buildEmotionUserPrompt(userPrompt: string): string {
-  return `USER: ${userPrompt}`;
+export function buildEmotionUserPrompt(
+  userPrompt: string,
+  history: readonly TurnRecord[] = [],
+): string {
+  const lines = [`USER: ${userPrompt}`];
+  const trail = summariseHistory(history);
+  if (trail) lines.push("", trail);
+  return lines.join("\n");
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -93,6 +101,53 @@ export function buildImageMoodUserPrompt(stats: ImageStats | null): string {
 }
 
 // ────────────────────────────────────────────────────────────────────────
+// Agent 2 (VLM variant) — sees the actual photo via Llama-4-Scout
+// ────────────────────────────────────────────────────────────────────────
+
+export const SYSTEM_PROMPT_IMAGE_VLM = `You are an image analyst for a
+photo color-grading tool. Look at the photo and write ONE sentence (≤40
+words) describing:
+
+- subject type (portrait / landscape / cityscape / object / abstract / mixed)
+- lighting (time of day if outdoor; soft/harsh; indoor lamp / window / mixed)
+- existing color/mood character (warm / cool / muted / saturated / contrasty / flat)
+- one obvious flaw to address, if any (blown highlights, crushed shadows,
+  green cast, clipping)
+
+Plain text. No JSON. No markdown. No mention of people's identity. No OCR.
+
+Example: A backlit portrait at golden hour with warm muted tones; gentle
+soft light from camera-right; lifted shadows are slightly milky and could
+benefit from added contrast.`;
+
+/**
+ * Build the multi-part `content` for the OpenAI-compatible image_url
+ * message. Numerics are passed alongside as a sanity anchor — VLMs
+ * occasionally misjudge cast on heavily-saturated photos; the numbers
+ * ground the description.
+ */
+export function buildImageMoodVlmContent(
+  imageUrl: string,
+  stats: ImageStats | null,
+): Array<
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } }
+> {
+  const parts: Array<
+    | { type: "text"; text: string }
+    | { type: "image_url"; image_url: { url: string } }
+  > = [];
+  if (stats) {
+    parts.push({
+      type: "text",
+      text: `Numerics for cross-check: ${buildImageMoodUserPrompt(stats)}`,
+    });
+  }
+  parts.push({ type: "image_url", image_url: { url: imageUrl } });
+  return parts;
+}
+
+// ────────────────────────────────────────────────────────────────────────
 // Agent 3 — Action Agent (JSON delta via json_object mode)
 // ────────────────────────────────────────────────────────────────────────
 
@@ -135,11 +190,15 @@ export function buildActionUserPrompt(
   emotion: string | null,
   imageMood: string | null,
   current: GradingParams,
+  history: readonly TurnRecord[] = [],
 ): string {
-  return [
+  const lines = [
     `USER: ${userPrompt}`,
     `EMOTION: ${emotion ?? "(analyst failed — infer from user prompt)"}`,
     `IMAGE: ${imageMood ?? "(analyst failed — no image-aware guidance)"}`,
     `CURRENT: ${summariseParams(current)}`,
-  ].join("\n");
+  ];
+  const trail = summariseHistory(history);
+  if (trail) lines.push("", trail);
+  return lines.join("\n");
 }

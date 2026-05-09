@@ -1,6 +1,6 @@
 import "server-only";
 import OpenAI from "openai";
-import { getGroq, GROQ_MODEL } from "../groq";
+import { getGroqForState, GROQ_MODEL } from "../groq";
 import { SYSTEM_PROMPT_ACTION, buildActionUserPrompt } from "../prompts";
 import { LLMDelta } from "@/lib/nlp/llm-schema";
 import type { AgentState } from "../state";
@@ -21,7 +21,7 @@ import type { AgentState } from "../state";
  * outlier has plenty of headroom.
  */
 export async function actionAgent(state: AgentState): Promise<void> {
-  const groq = getGroq();
+  const groq = getGroqForState(state);
   if (!groq) {
     state.error = "groq_not_configured";
     state.trace.push({
@@ -54,6 +54,7 @@ export async function actionAgent(state: AgentState): Promise<void> {
             state.emotionAnalysis,
             state.imageMood,
             state.currentParams,
+            state.history,
           ),
         },
       ],

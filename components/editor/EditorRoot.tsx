@@ -22,6 +22,7 @@ import {
   uploadAndCreatePhoto,
   uploadRenderedAsPhoto,
 } from "@/lib/storage/upload";
+import { originalUrl } from "@/lib/storage/url";
 import { cn } from "@/lib/utils";
 import editorStyles from "./editor.module.css";
 
@@ -40,6 +41,11 @@ export function EditorRoot() {
   const [hasImage, setHasImage] = useState(false);
   const [filename, setFilename] = useState<string | null>(null);
   const [photoId, setPhotoId] = useState<string | null>(null);
+  // Public Cloudinary CDN URL for the current photo, when one exists.
+  // Null for fresh-uploads-not-yet-saved. ChatPanel uses this for the
+  // VLM image analyst — saved photos get the cheap CDN path; fresh
+  // uploads get downsampled-to-base64 client-side.
+  const [cloudinaryUrl, setCloudinaryUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -56,6 +62,7 @@ export function EditorRoot() {
     setHasImage(true);
     setFilename(file.name);
     setPhotoId(null);
+    setCloudinaryUrl(null);
   }, []);
 
   // Image stats — feed the NL parser so prompts adapt to the photo
@@ -155,6 +162,7 @@ export function EditorRoot() {
         setHasImage(true);
         setFilename(data.photo.filename);
         setPhotoId(id);
+        setCloudinaryUrl(data.photo.originalUrl);
         const latestEdit = data.edits[0];
         if (latestEdit) setParams(latestEdit.params);
       } catch (err) {
@@ -249,6 +257,7 @@ export function EditorRoot() {
         setInfo("Added to gallery");
         if (!photoId) {
           setPhotoId(result.photo.id);
+          setCloudinaryUrl(originalUrl(result.photo.publicId));
           const url = new URL(window.location.href);
           url.searchParams.set("photoId", result.photo.id);
           router.replace(url.pathname + url.search);
@@ -349,6 +358,8 @@ export function EditorRoot() {
           params={params}
           onParams={setParams}
           stats={stats}
+          source={source}
+          cloudinaryUrl={cloudinaryUrl}
           layoutNonce={adjustmentsOpen ? 1 : 0}
           className="min-h-[280px] flex-1"
         />

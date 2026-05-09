@@ -1,6 +1,6 @@
 import "server-only";
 import OpenAI from "openai";
-import { getGroq, GROQ_MODEL } from "../groq";
+import { getGroqForState, GROQ_MODEL } from "../groq";
 import { SYSTEM_PROMPT_EMOTION, buildEmotionUserPrompt } from "../prompts";
 import type { AgentState } from "../state";
 
@@ -14,7 +14,7 @@ import type { AgentState } from "../state";
  * from the raw user prompt.
  */
 export async function emotionAnalyst(state: AgentState): Promise<void> {
-  const groq = getGroq();
+  const groq = getGroqForState(state);
   if (!groq) {
     state.trace.push({
       node: "emotionAnalyst",
@@ -35,7 +35,10 @@ export async function emotionAnalyst(state: AgentState): Promise<void> {
       reasoning_effort: "low",
       messages: [
         { role: "system", content: SYSTEM_PROMPT_EMOTION },
-        { role: "user", content: buildEmotionUserPrompt(state.userPrompt) },
+        {
+          role: "user",
+          content: buildEmotionUserPrompt(state.userPrompt, state.history),
+        },
       ],
     });
     state.callCount += 1;
