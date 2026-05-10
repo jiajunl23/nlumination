@@ -49,3 +49,7 @@ landing-*.png
 
 # eval reports — transient runner output, not source
 eval/reports/
+
+# python tooling cache
+__pycache__/
+*.pyc
