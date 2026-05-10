@@ -27,7 +27,7 @@ import {
 import { emotionAnalyst } from "./nodes/emotionAnalyst";
 import { imageMoodAnalyst } from "./nodes/imageMoodAnalyst";
 import { actionAgent } from "./nodes/actionAgent";
-import { retrieveLuts } from "@/lib/nlp/lut-retrieve";
+import { retrieveLutsStrict } from "@/lib/nlp/lut-retrieve";
 
 const RAG_TOP_K = 3;
 
@@ -49,7 +49,11 @@ async function lutRetriever(state: AgentState): Promise<void> {
       ? ` Prior intent: ${state.history[state.history.length - 1].prompt}.`
       : "";
     const query = state.userPrompt + recent;
-    const cands = await retrieveLuts(query, RAG_TOP_K);
+    // Strict variant — any embed-API or manifest failure throws here so
+    // the trace records `ok: false` instead of silently masquerading as
+    // a zero-candidate result. The catch below keeps the request alive
+    // (A3 runs without LUT seeds) but the UI now sees the real error.
+    const cands = await retrieveLutsStrict(query, RAG_TOP_K);
     state.lutCandidates = cands;
     state.trace.push({
       node: "lutRetriever",
