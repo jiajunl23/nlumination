@@ -45,3 +45,7 @@ test_image.png
 editor-*.png
 landing-*.png
 .playwright-mcp/
+.claude/
+
+# eval reports — transient runner output, not source
+eval/reports/
