@@ -1,8 +1,8 @@
 /**
  * Smoke-retrieve targeting visual-character prompts. Tests whether the
- * RAG retriever can distinguish numbered variants (1/2/3/4) and direction
- * variants (cold/warm/cross-process) now that descriptions are grounded
- * in actual visual observation.
+ * LUT tool-retriever can distinguish numbered variants (1/2/3/4) and
+ * direction variants (cold/warm/cross-process) now that descriptions
+ * are grounded in actual visual observation.
  *
  * Paced 22s/query for Voyage's 3 RPM free-tier limit.
  */

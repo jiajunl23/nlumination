@@ -67,7 +67,7 @@ export const LLMDelta = z.object({
     })
     .optional(),
   vignetteAmount: num(),
-  // LUT seed (RAG path). When set, the WebGL pipeline applies the LUT
+  // LUT seed (tool-selection path). When set, the WebGL pipeline applies the LUT
   // BEFORE the slider stage; the slider deltas above are then
   // additional fine-tuning on top of the LUT-graded image.
   // `lutId` must match a valid id from the public/luts/manifest.json

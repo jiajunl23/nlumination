@@ -20,7 +20,7 @@ import type { LutCandidate } from "@/lib/nlp/lut-retrieve";
  * Grading mode toggle, plumbed from the client.
  *
  *   - "auto"   : A3 picks LUT or pure slider based on prompt and similarity
- *   - "lut"    : A3 must seed with the top LUT candidate (RAG-driven)
+ *   - "lut"    : A3 must seed with the top LUT candidate (retrieval-driven)
  *   - "slider" : A3 must NOT emit a lutId (legacy slider-only behavior)
  *
  * Default is "auto" so the pipeline behaves identically to v3 when the
@@ -80,7 +80,7 @@ export interface AgentState {
    * imageMoodAnalyst falls back to the numeric ImageStats path.
    */
   imageUrl: string | null;
-  /** Toggle between LUT-RAG, slider-only, and auto-decide. */
+  /** Toggle between LUT tool-selection, slider-only, and auto-decide. */
   gradeMode: GradeMode;
   /** Top-K LUT candidates from cosine retrieval — injected into A3 prompt. */
   lutCandidates: LutCandidate[];

@@ -38,7 +38,7 @@ const DEST_CCBYSA = join(DEST_ROOT, "cc-by-sa");
 // Hald level 6 is 6²×6² = 36×36 layout = 216×216 pixels = 36³ effective LUT.
 const TARGET_PX = 216;
 
-// ── Manifest entry shape (also re-exported as type for downstream RAG) ──
+// ── Manifest entry shape (re-exported for the downstream retriever) ──
 
 type Category =
   | "film-color-negative"
@@ -68,9 +68,9 @@ interface LutEntry {
   sourceUrl: string;
   /** Original filename (preserves film-stock + push/pull notation). */
   sourceFilename: string;
-  /** High-level look category for UI grouping + RAG pre-filter. */
+  /** High-level look category for UI grouping + retrieval pre-filter. */
   category: Category;
-  /** Coarse style tags for keyword search. RAG embedding goes on description. */
+  /** Coarse style tags for keyword search. Embedding goes on description. */
   tags: string[];
   /** One-sentence prose description. Generated; can be improved later. */
   description: string;

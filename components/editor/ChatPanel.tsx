@@ -811,9 +811,10 @@ function ModeToggle({
 }
 
 /**
- * GradeMode toggle — agents-mode-only sub-control. Picks the LUT-RAG
- * (`lut`), legacy slider (`slider`), or auto-balanced (`auto`) strategy
- * for A3. Persisted under `nlumination.gradeMode:v1`.
+ * GradeMode toggle — agents-mode-only sub-control. Picks the
+ * LUT-tool-selection (`lut`), legacy slider (`slider`), or
+ * auto-balanced (`auto`) strategy for A3. Persisted under
+ * `nlumination.gradeMode:v1`.
  */
 function GradeModeToggle({
   gradeMode,
@@ -832,7 +833,7 @@ function GradeModeToggle({
       className="flex items-center gap-0.5 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-elev-2)]/60 p-0.5"
       role="group"
       aria-label="Grading style (agents mode)"
-      title="A3 strategy: pick a LUT seed (RAG), output sliders only, or let A3 decide"
+      title="A3 strategy: pick a LUT seed (tool retrieval), output sliders only, or let A3 decide"
     >
       <button
         type="button"
@@ -846,7 +847,7 @@ function GradeModeToggle({
         type="button"
         onClick={() => onChange("lut")}
         className={cn(pillBase, gradeMode === "lut" ? activeCls : idleCls)}
-        title="Force LUT-RAG: A3 must seed with the top-matching LUT"
+        title="Force LUT tool retrieval: A3 must seed with the top-matching LUT"
       >
         LUT
       </button>

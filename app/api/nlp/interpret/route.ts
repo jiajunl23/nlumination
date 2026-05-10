@@ -66,7 +66,8 @@ const Body = z.object({
   // (fresh upload, downsampled to 384px). Cap at 200KB to bound payload
   // size; only the agents pipeline uses this — LLM mode ignores it.
   imageUrl: z.string().max(200_000).optional().nullable(),
-  // RAG grading-mode toggle (agents pipeline only). Defaults to "auto"
+  // Grading-mode toggle (agents pipeline only) — controls LUT tool-selection
+  // behaviour: lut/slider/auto. Defaults to "auto"
   // so older clients that don't send the field keep working.
   gradeMode: z.enum(["auto", "lut", "slider"]).optional().default("auto"),
 });

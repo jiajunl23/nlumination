@@ -613,7 +613,7 @@ def compose(lut: dict) -> tuple[str, list[str]] | None:
     tags.append(cat)
     tags.append(stock.lower())
 
-    # Dedupe, drop empties, cap at 14 tags (RAG embed builder takes top 10)
+    # Dedupe, drop empties, cap at 14 tags (the retrieval embed builder takes top 10)
     seen: set[str] = set()
     deduped: list[str] = []
     for t in tags:
