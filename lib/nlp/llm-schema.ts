@@ -67,6 +67,14 @@ export const LLMDelta = z.object({
     })
     .optional(),
   vignetteAmount: num(),
+  // LUT seed (RAG path). When set, the WebGL pipeline applies the LUT
+  // BEFORE the slider stage; the slider deltas above are then
+  // additional fine-tuning on top of the LUT-graded image.
+  // `lutId` must match a valid id from the public/luts/manifest.json
+  // candidate list injected into the prompt — A3 cannot invent ids.
+  lutId: z.string().max(80).optional().nullable(),
+  /** 0..1 blend amount; 1 = full LUT, 0 = bypass. */
+  lutOpacity: z.number().min(0).max(1).optional(),
   reasoning: z.string().max(160).optional(),
 });
 
@@ -123,6 +131,8 @@ export const LLM_JSON_SCHEMA = {
       },
     },
     vignetteAmount: numProp(-100, 100),
+    lutId: { type: ["string", "null"] as const, maxLength: 80 },
+    lutOpacity: numProp(0, 1),
     reasoning: { type: "string", maxLength: 160 },
   },
 };
@@ -159,6 +169,16 @@ export function mergeDelta(
   if (delta.clarity !== undefined) out.clarity = clamp(delta.clarity, -100, 100);
   if (delta.vignetteAmount !== undefined) {
     out.vignette = { ...out.vignette, amount: clamp(delta.vignetteAmount, -100, 100) };
+  }
+
+  // Treat empty-string / null lutId as "clear the LUT slot" rather than
+  // "leave unchanged" — A3 sometimes emits `lutId: ""` when it wants the
+  // slider stage to dominate (matches `lutId: null` semantics in the UI).
+  if (delta.lutId !== undefined) {
+    out.lutId = delta.lutId === "" ? null : delta.lutId;
+  }
+  if (delta.lutOpacity !== undefined) {
+    out.lutOpacity = clamp(delta.lutOpacity, 0, 1);
   }
 
   if (delta.hsl) {

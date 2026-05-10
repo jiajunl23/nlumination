@@ -55,6 +55,8 @@ export async function actionAgent(state: AgentState): Promise<void> {
             state.imageMood,
             state.currentParams,
             state.history,
+            state.lutCandidates,
+            state.gradeMode,
           ),
         },
       ],

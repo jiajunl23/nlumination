@@ -17,7 +17,8 @@
 
 import type { GradingParams } from "@/lib/grading/params";
 import type { ImageStats } from "@/lib/grading/imageStats";
-import type { TurnRecord } from "./state";
+import type { TurnRecord, GradeMode } from "./state";
+import type { LutCandidate } from "@/lib/nlp/lut-retrieve";
 import { summariseHistory } from "@/lib/nlp/history-summary";
 
 // ────────────────────────────────────────────────────────────────────────
@@ -160,7 +161,8 @@ temperature tint contrast highlights shadows whites blacks vibrance saturation
 clarity vignetteAmount; exposure -3..3; hsl.{red|orange|yellow|green|aqua|blue|
 purple|magenta}.{hue,saturation,luminance}; splitToning.{shadowHue 0..360,
 shadowSaturation 0..100, highlightHue 0..360, highlightSaturation 0..100,
-balance -100..100}; reasoning (≤160 chars, plain summary).
+balance -100..100}; **lutId** (optional string — see LUT section); **lutOpacity**
+0..1; reasoning (≤160 chars, plain summary).
 
 CRITICAL: hsl bands are EXACTLY these 8: red, orange, yellow, green, aqua,
 blue, purple, magenta. Use **aqua** (NOT cyan), **magenta** (NOT pink). Any
@@ -176,14 +178,60 @@ Use the IMAGE brief to decide magnitudes — if it says "highlight room
 limited", don't push whites; if it says "shadow density preserved", lifting
 shadows is safe.
 
-Example:
+LUT SEEDS (when LUT_CANDIDATES is non-empty):
+You will receive 1-3 LUT candidates retrieved by cosine-similarity over
+the user prompt. Each candidate has an id, a description, and a score.
+A LUT is a pre-baked color transform shipped with the app. Picking one
+encodes the heavy color identity (vintage, teal-orange, bleach-bypass,
+foggy-night, …) at much higher fidelity than slider deltas alone.
+
+When to set lutId:
+  • A candidate's description matches the prompt's STYLE intent (a "look",
+    not a numeric tweak) AND its score is high (≥ 0.35).
+  • Set lutId to the candidate's id verbatim. Inventing ids = silent drop.
+  • Set lutOpacity 0.6–1.0 for "strong this look", 0.3–0.5 for "subtle hint".
+When NOT to set lutId:
+  • Pure numeric prompts ("warmer +5", "more contrast"). LUT is wrong tool.
+  • All candidate scores < 0.30 — LUT seed would diverge from prompt.
+  • The user explicitly says "don't change colors / keep the look" — bypass.
+When you DO set lutId, the slider fields you ALSO emit are FINE-TUNING on
+top of the LUT (e.g. "more cinematic AND brighter" = pick teal-orange LUT
++ exposure +0.15). Don't repeat the LUT's effect with sliders — it doubles.
+
+GRADE_MODE override:
+  • "lut"    → must pick a candidate (use top-1 even if score is mediocre).
+  • "slider" → must NOT emit lutId; legacy 25-slider behavior.
+  • "auto"   → use the rules above.
+
+Example (no LUT):
 USER: warm cinematic golden-hour with raised shadows
 EMOTION: Warm cinematic look with golden-hour atmosphere; lifted shadows for openness; filmic contrast.
 IMAGE: Balanced midtones, neutral cast; ample contrast headroom and shadow room, mild highlight ceiling.
 CURRENT: pristine
+LUT_CANDIDATES: (none)
 YOU: {"exposure":0.15,"temperature":18,"tint":3,"contrast":20,"highlights":-10,"shadows":28,"blacks":-6,"vibrance":12,"saturation":-4,"clarity":6,"hsl":{"orange":{"saturation":15,"luminance":4},"yellow":{"saturation":10}},"splitToning":{"shadowHue":30,"shadowSaturation":18,"highlightHue":40,"highlightSaturation":12,"balance":-10},"reasoning":"warm cinematic golden-hour with lifted shadows and amber split-tone"}
 
+Example (LUT match):
+USER: make it look like a teal-orange Hollywood blockbuster
+EMOTION: Polished cinematic blockbuster mood with complementary teal-orange palette.
+IMAGE: Balanced midtones, neutral cast; ample headroom.
+CURRENT: pristine
+LUT_CANDIDATES: [{"id":"rt-color-creativepack-1-tealorange","desc":"Teal-and-orange Hollywood blockbuster look.","score":0.62},{"id":"rt-color-creativepack-1-tealorange1","desc":"Teal-and-orange variant 1.","score":0.58}]
+YOU: {"lutId":"rt-color-creativepack-1-tealorange","lutOpacity":0.85,"contrast":12,"shadows":8,"clarity":4,"reasoning":"teal-orange blockbuster — LUT seed at 0.85 opacity, gentle pop on top"}
+
 Reply with JSON only.`;
+
+function summariseLutCandidates(
+  candidates: readonly LutCandidate[] | undefined,
+): string {
+  if (!candidates || candidates.length === 0) return "(none)";
+  const items = candidates.slice(0, 3).map((c) => ({
+    id: c.id,
+    desc: c.description.slice(0, 110),
+    score: +c.score.toFixed(3),
+  }));
+  return JSON.stringify(items);
+}
 
 export function buildActionUserPrompt(
   userPrompt: string,
@@ -191,12 +239,16 @@ export function buildActionUserPrompt(
   imageMood: string | null,
   current: GradingParams,
   history: readonly TurnRecord[] = [],
+  lutCandidates: readonly LutCandidate[] = [],
+  gradeMode: GradeMode = "auto",
 ): string {
   const lines = [
     `USER: ${userPrompt}`,
     `EMOTION: ${emotion ?? "(analyst failed — infer from user prompt)"}`,
     `IMAGE: ${imageMood ?? "(analyst failed — no image-aware guidance)"}`,
     `CURRENT: ${summariseParams(current)}`,
+    `LUT_CANDIDATES: ${summariseLutCandidates(lutCandidates)}`,
+    `GRADE_MODE: ${gradeMode}`,
   ];
   const trail = summariseHistory(history);
   if (trail) lines.push("", trail);

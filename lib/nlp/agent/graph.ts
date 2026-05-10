@@ -1,16 +1,22 @@
 /**
  * runAgentsPipeline — the multi-agent equivalent of LangGraph's
- * `graph.compile().invoke()`. Wires three nodes:
+ * `graph.compile().invoke()`. Wires four nodes:
  *
- *   ┌─ emotionAnalyst (A1) ─┐
- *   │                       ├─→ actionAgent (A3) ─→ finalDelta
- *   └─ imageMoodAnalyst(A2)─┘
+ *   ┌─ emotionAnalyst (A1) ──┐
+ *   │                        │
+ *   ├─ imageMoodAnalyst (A2)─┼─→ actionAgent (A3) ─→ finalDelta
+ *   │                        │
+ *   └─ lutRetriever (RAG) ───┘
  *
- * A1 and A2 are independent → run with Promise.all (≈ 1× analyst latency
- * not 2×). A3 reads both outputs and synthesises the final delta.
+ * A1, A2, and the RAG retrieval all run in parallel via Promise.all
+ * (two LLM calls + one embedding call ≈ max(latency) not sum). A3 reads
+ * all three outputs and synthesises the final delta — including, when
+ * appropriate, a LUT seed picked from the retrieved candidates.
  *
  * Caller is responsible for charging `state.callCount` to the user's
- * quota after this resolves.
+ * quota after this resolves. Note callCount only counts Groq calls;
+ * the embedding call is on HuggingFace's free Inference API and not
+ * billed against the user's daily LLM budget.
  */
 import "server-only";
 import {
@@ -21,15 +27,58 @@ import {
 import { emotionAnalyst } from "./nodes/emotionAnalyst";
 import { imageMoodAnalyst } from "./nodes/imageMoodAnalyst";
 import { actionAgent } from "./nodes/actionAgent";
+import { retrieveLuts } from "@/lib/nlp/lut-retrieve";
+
+const RAG_TOP_K = 3;
+
+async function lutRetriever(state: AgentState): Promise<void> {
+  // Skip retrieval entirely when the user explicitly forced slider mode.
+  if (state.gradeMode === "slider") {
+    state.trace.push({
+      node: "lutRetriever",
+      ok: true,
+      candidates: [],
+    });
+    return;
+  }
+  try {
+    // Combine prompt + history-leading-prompt for slightly richer signal.
+    // Using just the user prompt is fine; concatenating the latest history
+    // turn gives the embedding hints when the prompt is short ("warmer").
+    const recent = state.history.length
+      ? ` Prior intent: ${state.history[state.history.length - 1].prompt}.`
+      : "";
+    const query = state.userPrompt + recent;
+    const cands = await retrieveLuts(query, RAG_TOP_K);
+    state.lutCandidates = cands;
+    state.trace.push({
+      node: "lutRetriever",
+      ok: true,
+      candidates: cands.map((c) => ({ id: c.id, score: +c.score.toFixed(3) })),
+    });
+  } catch (err) {
+    state.trace.push({
+      node: "lutRetriever",
+      ok: false,
+      error: err instanceof Error ? err.message.slice(0, 200) : "unknown",
+    });
+    // Non-fatal — continue without LUT seeds.
+  }
+}
 
 export async function runAgentsPipeline(
   input: InitialStateInput,
 ): Promise<AgentState> {
   const state = initialState(input);
 
-  // Parallel analyst phase. We don't bail if one analyst fails —
-  // the action agent is built to degrade gracefully.
-  await Promise.all([emotionAnalyst(state), imageMoodAnalyst(state)]);
+  // Parallel input phase: A1, A2, and RAG retrieval are independent.
+  // A1+A2 are LLM calls (~600ms each); retrieval is one HF embedding
+  // call (~50-200ms warm) — total wallclock = max of the three.
+  await Promise.all([
+    emotionAnalyst(state),
+    imageMoodAnalyst(state),
+    lutRetriever(state),
+  ]);
 
   await actionAgent(state);
 

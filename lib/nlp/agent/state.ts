@@ -14,6 +14,19 @@
 import type { GradingParams } from "@/lib/grading/params";
 import type { ImageStats } from "@/lib/grading/imageStats";
 import type { LLMDeltaT } from "@/lib/nlp/llm-schema";
+import type { LutCandidate } from "@/lib/nlp/lut-retrieve";
+
+/**
+ * Grading mode toggle, plumbed from the client.
+ *
+ *   - "auto"   : A3 picks LUT or pure slider based on prompt and similarity
+ *   - "lut"    : A3 must seed with the top LUT candidate (RAG-driven)
+ *   - "slider" : A3 must NOT emit a lutId (legacy slider-only behavior)
+ *
+ * Default is "auto" so the pipeline behaves identically to v3 when the
+ * client doesn't send the field.
+ */
+export type GradeMode = "auto" | "lut" | "slider";
 
 /**
  * Per-node breadcrumb. Shipped to the client so ChatPanel renders the
@@ -27,6 +40,13 @@ export type TraceEntry =
       /** "vlm" if Llama-4-Scout was tried, "stats" if numeric ImageStats. */
       path?: "vlm" | "stats";
       summary?: string;
+      error?: string;
+    }
+  | {
+      node: "lutRetriever";
+      ok: boolean;
+      /** Top-K candidate ids + cosine scores; null if retrieval failed. */
+      candidates?: { id: string; score: number }[];
       error?: string;
     }
   | { node: "actionAgent"; ok: boolean; summary?: string; error?: string }
@@ -60,6 +80,10 @@ export interface AgentState {
    * imageMoodAnalyst falls back to the numeric ImageStats path.
    */
   imageUrl: string | null;
+  /** Toggle between LUT-RAG, slider-only, and auto-decide. */
+  gradeMode: GradeMode;
+  /** Top-K LUT candidates from cosine retrieval — injected into A3 prompt. */
+  lutCandidates: LutCandidate[];
 
   // ── Analyst outputs ────────────────────────────────────────────
   // A1 returns 1-2 sentences describing emotional/aesthetic intent.
@@ -86,6 +110,8 @@ export interface InitialStateInput {
   history?: TurnRecord[];
   userApiKey?: string | null;
   imageUrl?: string | null;
+  gradeMode?: GradeMode;
+  lutCandidates?: LutCandidate[];
 }
 
 export function initialState(input: InitialStateInput): AgentState {
@@ -96,6 +122,8 @@ export function initialState(input: InitialStateInput): AgentState {
     history: input.history ?? [],
     userApiKey: input.userApiKey ?? null,
     imageUrl: input.imageUrl ?? null,
+    gradeMode: input.gradeMode ?? "auto",
+    lutCandidates: input.lutCandidates ?? [],
     emotionAnalysis: null,
     imageMood: null,
     finalDelta: null,
