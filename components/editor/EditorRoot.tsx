@@ -17,6 +17,7 @@ import { SliderPanel } from "./SliderPanel";
 import { BeforeAfterToggle } from "./BeforeAfterToggle";
 import { ChatPanel } from "./ChatPanel";
 import { DEFAULT_PARAMS, type GradingParams } from "@/lib/grading/params";
+import { loadHaldClutByLutId } from "@/lib/webgl/hald-clut";
 import { computeImageStats, type ImageStats } from "@/lib/grading/imageStats";
 import {
   uploadAndCreatePhoto,
@@ -64,6 +65,39 @@ export function EditorRoot() {
     setPhotoId(null);
     setCloudinaryUrl(null);
   }, []);
+
+  // Track the LUT id currently uploaded to the WebGL pipeline so we can
+  // skip re-decoding when only lutOpacity changes (params.lutId unchanged).
+  // Reset when the source image changes (loading a new photo wipes GL state).
+  const appliedLutIdRef = useRef<string | null>(null);
+
+  // Watch params.lutId — when the AI selects a new LUT seed, fetch the
+  // HaldCLUT PNG, decode to CubeLut, and push to the WebGL pipeline.
+  // Failures are logged but never throw — the slider stage still runs.
+  useEffect(() => {
+    const lutId = params.lutId;
+    if (lutId === appliedLutIdRef.current) return;
+    if (!canvasRef.current) return;
+    if (!lutId) {
+      canvasRef.current.setLut(null);
+      appliedLutIdRef.current = null;
+      return;
+    }
+    let cancelled = false;
+    loadHaldClutByLutId(lutId)
+      .then((lut) => {
+        if (cancelled) return;
+        canvasRef.current?.setLut(lut);
+        appliedLutIdRef.current = lutId;
+      })
+      .catch((err) => {
+        console.error(`[lut-load] ${lutId}:`, err);
+        // Soft-fall: leave previous LUT in place rather than wiping it.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [params.lutId]);
 
   // Image stats — feed the NL parser so prompts adapt to the photo
   // (a "brighten" on a bright photo becomes gentle, "warm" on a sunset

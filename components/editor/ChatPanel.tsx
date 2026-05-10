@@ -16,7 +16,7 @@ import {
   DAILY_LLM_LIMIT,
   normalizeStoredMode,
 } from "@/lib/nlp/modes";
-import type { TraceEntry, TurnRecord } from "@/lib/nlp/agent/state";
+import type { GradeMode, TraceEntry, TurnRecord } from "@/lib/nlp/agent/state";
 import type { ParseResult } from "@/lib/nlp/types";
 import type { GradingParams } from "@/lib/grading/params";
 import type { ImageStats } from "@/lib/grading/imageStats";
@@ -83,9 +83,14 @@ const ALL_EXAMPLES: ExampleChip[] = [
 const EXAMPLES_QUERY_RE =
   /^\s*(examples?|more|more examples?|show examples?|help|ideas?|inspire me)\s*$/i;
 const MODE_KEY = "nlumination.aiMode";
+const GRADE_MODE_KEY = "nlumination.gradeMode:v1";
 // Versioned key — bumping the suffix invalidates persisted history if its
 // shape ever changes (e.g. LLMDelta gains a required field).
 const HISTORY_KEY = "nlumination.turnHistory:v1";
+
+function normalizeStoredGradeMode(s: string | null): GradeMode {
+  return s === "lut" || s === "slider" ? s : "auto";
+}
 // Soft cap on what we ship to server. Server enforces its own .max(50).
 const MAX_HISTORY_TURNS_TO_SEND = 50;
 
@@ -142,6 +147,7 @@ async function callLLM(
   history: readonly TurnRecord[],
   apiKey: string | null,
   imageUrl: string | null,
+  gradeMode: GradeMode,
 ): Promise<LLMResponse> {
   try {
     const headers: Record<string, string> = {
@@ -163,6 +169,10 @@ async function callLLM(
         // Server uses imageUrl only in agents mode; passing it on
         // every request is fine, the route just ignores it for "llm".
         imageUrl,
+        // gradeMode steers A3's LUT-vs-slider behavior (agents mode only;
+        // LLM-mode route ignores). Always send so future server logic can
+        // treat null/missing as "auto" without parsing-time defaults.
+        gradeMode,
       }),
     });
     if (res.status === 401) return { ok: false, reason: "auth" };
@@ -208,6 +218,9 @@ export function ChatPanel({
   const [value, setValue] = useState("");
   const [messages, setMessages] = useState<Message[]>([WELCOME]);
   const [mode, setMode] = useState<Mode>("auto");
+  const [gradeMode, setGradeMode] = useState<GradeMode>("auto");
+  const gradeModeRef = useRef<GradeMode>(gradeMode);
+  gradeModeRef.current = gradeMode;
   const [quotaState, setQuotaState] = useState<QuotaResponse | null>(null);
   // Conversation context. Each entry records {prompt, paramsBefore,
   // delta, paramsAfter, ts}. Survives page reload via localStorage.
@@ -234,10 +247,22 @@ export function ChatPanel({
       const saved = window.localStorage.getItem(MODE_KEY);
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setMode(normalizeStoredMode(saved));
+      const savedGrade = window.localStorage.getItem(GRADE_MODE_KEY);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setGradeMode(normalizeStoredGradeMode(savedGrade));
     } catch {
       /* ignore */
     }
   }, []);
+
+  const setGradeModeAndPersist = (m: GradeMode) => {
+    setGradeMode(m);
+    try {
+      window.localStorage.setItem(GRADE_MODE_KEY, m);
+    } catch {
+      /* ignore */
+    }
+  };
 
   // Hydrate turn history. Stored shape is JSON-stringified TurnRecord[];
   // parse defensively (any error → start fresh, don't crash mount).
@@ -476,6 +501,7 @@ export function ChatPanel({
         historyRef.current,
         apiKeyRef.current,
         vlmUrl,
+        gradeModeRef.current,
       );
       if (handleAfterAICall(ai, true, `a-${ts}`)) return;
 
@@ -527,6 +553,7 @@ export function ChatPanel({
       historyRef.current,
       apiKeyRef.current,
       null,
+      gradeModeRef.current,
     );
       if (handleAfterAICall(ai, false, `a-${ts}`)) return;
 
@@ -580,6 +607,7 @@ export function ChatPanel({
       historyRef.current,
       apiKeyRef.current,
       null,
+      gradeModeRef.current,
     );
     if (handleAfterAICall(ai, false, `a-${ts}`)) return;
 
@@ -621,6 +649,12 @@ export function ChatPanel({
         <div className="flex items-center justify-between gap-2 border-b border-[var(--color-border)]/40 px-4 py-1.5 text-[10px] text-[var(--color-fg-dim)]">
           <span className="truncate">{MODE_COST[mode].hint}</span>
           <div className="flex shrink-0 items-center gap-2">
+            {mode === "agents" && (
+              <GradeModeToggle
+                gradeMode={gradeMode}
+                onChange={setGradeModeAndPersist}
+              />
+            )}
             {turnHistory.length > 0 && (
               <button
                 type="button"
@@ -776,6 +810,58 @@ function ModeToggle({
   );
 }
 
+/**
+ * GradeMode toggle — agents-mode-only sub-control. Picks the LUT-RAG
+ * (`lut`), legacy slider (`slider`), or auto-balanced (`auto`) strategy
+ * for A3. Persisted under `nlumination.gradeMode:v1`.
+ */
+function GradeModeToggle({
+  gradeMode,
+  onChange,
+}: {
+  gradeMode: GradeMode;
+  onChange: (m: GradeMode) => void;
+}) {
+  const pillBase =
+    "rounded-full px-2 py-0.5 text-[10px] font-medium leading-none transition";
+  const activeCls = "bg-[var(--color-accent)]/15 text-[var(--color-accent)]";
+  const idleCls =
+    "text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]";
+  return (
+    <div
+      className="flex items-center gap-0.5 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-elev-2)]/60 p-0.5"
+      role="group"
+      aria-label="Grading style (agents mode)"
+      title="A3 strategy: pick a LUT seed (RAG), output sliders only, or let A3 decide"
+    >
+      <button
+        type="button"
+        onClick={() => onChange("auto")}
+        className={cn(pillBase, gradeMode === "auto" ? activeCls : idleCls)}
+        title="A3 picks LUT or sliders based on the prompt"
+      >
+        Auto
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("lut")}
+        className={cn(pillBase, gradeMode === "lut" ? activeCls : idleCls)}
+        title="Force LUT-RAG: A3 must seed with the top-matching LUT"
+      >
+        LUT
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("slider")}
+        className={cn(pillBase, gradeMode === "slider" ? activeCls : idleCls)}
+        title="Force slider-only: A3 won't pick a LUT seed (legacy v3 behavior)"
+      >
+        Slider
+      </button>
+    </div>
+  );
+}
+
 function traceToLines(trace: TraceEntry[]): string[] {
   const out: string[] = [];
   for (const t of trace) {
@@ -794,6 +880,20 @@ function traceToLines(trace: TraceEntry[]): string[] {
           out.push(
             `🖼️ Image analyst failed (${t.path ?? "?"}: ${t.error ?? "unknown"})`,
           );
+        }
+        break;
+      case "lutRetriever":
+        if (t.ok) {
+          if (t.candidates && t.candidates.length > 0) {
+            const top = t.candidates[0];
+            out.push(
+              `🎨 Retrieved ${t.candidates.length} LUT${t.candidates.length === 1 ? "" : "s"} (top: ${top.id} ${top.score.toFixed(2)})`,
+            );
+          } else {
+            // gradeMode === "slider" or no manifest — silent skip
+          }
+        } else {
+          out.push(`🎨 LUT retrieval failed (${t.error ?? "unknown"})`);
         }
         break;
       case "actionAgent":
