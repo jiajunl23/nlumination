@@ -34,6 +34,8 @@ import {
   GROQ_MODEL,
 } from "@/lib/nlp/agent/groq";
 import { isValidGroqKey } from "@/lib/nlp/groq-key";
+import { isAllowedImageUrl } from "@/lib/nlp/image-url";
+import { cloudinaryCloudName } from "@/lib/storage/cloudinary";
 import type { GradingParams } from "@/lib/grading/params";
 import type { ImageStats } from "@/lib/grading/imageStats";
 import type { TraceEntry, TurnRecord } from "@/lib/nlp/agent/state";
@@ -177,6 +179,16 @@ export async function POST(req: Request) {
     const { prompt, current, stats, mode, history, imageUrl, gradeMode } =
       Body.parse(await req.json());
 
+    // SSRF / abuse defence: only allow our Cloudinary CDN or base64 data
+    // URLs. Anything else (arbitrary http, internal IP, file://) is
+    // silently dropped — A2 degrades to the numeric stats path. We do
+    // NOT 400 the request so legacy clients that send a stale URL still
+    // get a usable response.
+    const safeImageUrl =
+      imageUrl && isAllowedImageUrl(imageUrl, cloudinaryCloudName)
+        ? imageUrl
+        : null;
+
     // Trim before any LLM call so prompt-side cost stays bounded.
     const trimmedHistory = trimHistory(history as TurnRecord[]);
 
@@ -226,7 +238,7 @@ export async function POST(req: Request) {
         imageStats: (stats ?? null) as ImageStats | null,
         history: trimmedHistory,
         userApiKey,
-        imageUrl: imageUrl ?? null,
+        imageUrl: safeImageUrl,
         gradeMode,
       });
       trace = state.trace;
@@ -322,7 +334,13 @@ export async function POST(req: Request) {
         { status },
       );
     }
-    console.error("/api/nlp/interpret", err);
+    // Defensive: don't dump the raw err object — its inspector output may
+    // include the original request context if an upstream library attached
+    // it. Just the name + first 200 chars of message.
+    const errName = err instanceof Error ? err.name : typeof err;
+    const errMsg =
+      err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200);
+    console.error("/api/nlp/interpret", errName, errMsg);
     return NextResponse.json(
       { error: "Interpreter unavailable", code: "internal_error" },
       { status: 503 },

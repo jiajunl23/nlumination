@@ -22,6 +22,13 @@ export type SignedUpload = {
  *
  * Cloudinary returns { public_id, secure_url, width, height, format, ... }.
  */
+// Security: restrict uploads to image bitmaps Cloudinary can decode safely.
+// Without `allowed_formats`, a logged-in user could upload SVG-with-embedded-JS
+// or arbitrary HTML — Cloudinary may serve those with a content-type that lets
+// them execute (XSS surface). Whitelisting locks the resource_type and forces
+// Cloudinary to reject anything that doesn't pass image-format detection.
+const ALLOWED_FORMATS = "jpg,jpeg,png,webp";
+
 export function signUpload(args: { userId: string; folder?: string }): SignedUpload {
   const folder = `${args.folder ?? "nlumination"}/${args.userId}`;
   const publicId = randomUUID();
@@ -30,18 +37,26 @@ export function signUpload(args: { userId: string; folder?: string }): SignedUpl
   // The signature must cover every parameter we send, sorted alphabetically.
   // `api_sign_request` handles this for us.
   const signature = cloudinary.utils.api_sign_request(
-    { folder, public_id: publicId, timestamp },
+    {
+      allowed_formats: ALLOWED_FORMATS,
+      folder,
+      public_id: publicId,
+      resource_type: "image",
+      timestamp,
+    },
     process.env.CLOUDINARY_API_SECRET ?? "",
   );
 
   return {
     uploadUrl: `https://api.cloudinary.com/v1_1/${cloudinaryCloudName}/image/upload`,
     params: {
+      allowed_formats: ALLOWED_FORMATS,
       api_key: cloudinaryApiKey,
-      timestamp: String(timestamp),
-      signature,
       folder,
       public_id: publicId,
+      resource_type: "image",
+      signature,
+      timestamp: String(timestamp),
     },
   };
 }
