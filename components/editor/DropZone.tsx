@@ -10,13 +10,29 @@ type Props = {
 };
 
 const ACCEPTED = ["image/jpeg", "image/png", "image/webp"];
-const SAMPLE_URL = "/sample.jpg";
-const SAMPLE_FILENAME = "sample.jpg";
+
+// Two sample images of intentionally different character so users can
+// see how the grading pipeline behaves on different content types:
+//   - airport: a nighttime warm-lit scene with a clear subject; tests
+//     low-light + warm-cast handling
+//   - lakeside: a wide dusk landscape with sky-water gradient; tests
+//     broader tonal range + mixed cool/warm
+type SampleSpec = {
+  id: string;
+  label: string;
+  url: string;
+  filename: string;
+};
+
+const SAMPLES: SampleSpec[] = [
+  { id: "airport", label: "Airport", url: "/sample.jpg", filename: "sample.jpg" },
+  { id: "lakeside", label: "Lakeside", url: "/sample-2.jpg", filename: "sample-2.jpg" },
+];
 
 export function DropZone({ onImage, className }: Props) {
   const [over, setOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loadingSample, setLoadingSample] = useState(false);
+  const [loadingSampleId, setLoadingSampleId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const accept = useCallback(
@@ -37,23 +53,28 @@ export function DropZone({ onImage, className }: Props) {
     [onImage],
   );
 
-  const loadSample = useCallback(async () => {
-    setError(null);
-    setLoadingSample(true);
-    try {
-      const res = await fetch(SAMPLE_URL);
-      if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
-      const blob = await res.blob();
-      const file = new File([blob], SAMPLE_FILENAME, { type: blob.type || "image/jpeg" });
-      const bmp = await createImageBitmap(file);
-      onImage(bmp, file);
-    } catch (err) {
-      setError("Couldn't load the sample image.");
-      console.error(err);
-    } finally {
-      setLoadingSample(false);
-    }
-  }, [onImage]);
+  const loadSample = useCallback(
+    async (sample: SampleSpec) => {
+      setError(null);
+      setLoadingSampleId(sample.id);
+      try {
+        const res = await fetch(sample.url);
+        if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
+        const blob = await res.blob();
+        const file = new File([blob], sample.filename, {
+          type: blob.type || "image/jpeg",
+        });
+        const bmp = await createImageBitmap(file);
+        onImage(bmp, file);
+      } catch (err) {
+        setError("Couldn't load the sample image.");
+        console.error(err);
+      } finally {
+        setLoadingSampleId(null);
+      }
+    },
+    [onImage],
+  );
 
   return (
     <div
@@ -110,18 +131,29 @@ export function DropZone({ onImage, className }: Props) {
           JPG, PNG, or WebP — full resolution stays on your device.
         </div>
       </div>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          void loadSample();
-        }}
-        disabled={loadingSample}
-        className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-elev-2)]/60 px-3 py-1 text-xs text-[var(--color-fg-muted)] transition hover:border-[var(--color-accent)] hover:text-[var(--color-fg)] disabled:opacity-50"
-      >
-        <Sparkles className="h-3 w-3 text-[var(--color-accent)]" />
-        {loadingSample ? "Loading sample…" : "Or try our sample image"}
-      </button>
+      <div className="mt-1 flex items-center gap-2">
+        <span className="text-xs text-[var(--color-fg-muted)]">
+          Or try a sample:
+        </span>
+        {SAMPLES.map((s) => {
+          const loading = loadingSampleId === s.id;
+          return (
+            <button
+              key={s.id}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                void loadSample(s);
+              }}
+              disabled={loadingSampleId !== null}
+              className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-elev-2)]/60 px-3 py-1 text-xs text-[var(--color-fg-muted)] transition hover:border-[var(--color-accent)] hover:text-[var(--color-fg)] disabled:opacity-50"
+            >
+              <Sparkles className="h-3 w-3 text-[var(--color-accent)]" />
+              {loading ? "Loading…" : s.label}
+            </button>
+          );
+        })}
+      </div>
       {error && <div className="mt-2 text-xs text-red-400">{error}</div>}
     </div>
   );
