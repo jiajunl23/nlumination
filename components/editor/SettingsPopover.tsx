@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Settings, X, Eye, EyeOff, Check, AlertTriangle } from "lucide-react";
+import { KeyRound, X, Eye, EyeOff, Check, AlertTriangle } from "lucide-react";
 import { useGroqApiKey } from "@/lib/nlp/useGroqApiKey";
 import { isValidGroqKey } from "@/lib/nlp/groq-key";
 import { cn } from "@/lib/utils";
@@ -20,8 +20,10 @@ type TestState =
  * server happens via the X-Groq-Key header in callLLM().
  *
  * UX:
- * - Closed: a small gear icon. Visually distinct (filled accent) when
- *   a key is currently set so the user knows BYO mode is active.
+ * - Closed: a key-icon pill labelled "Your key" (filled accent) when
+ *   a key is set, or "BYO key" (idle) when not. Switched away from a
+ *   generic gear icon because users couldn't tell the trigger from a
+ *   settings button.
  * - Open: input + Show/Hide + Test + Save + Clear, plus a security
  *   note explaining where the key goes.
  */
@@ -106,16 +108,21 @@ export function SettingsPopover() {
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex h-7 w-7 items-center justify-center rounded-full border transition",
+          "flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 text-[11px] font-medium transition",
           hasKey
             ? "border-[var(--color-accent)]/50 bg-[var(--color-accent)]/10 text-[var(--color-accent)]"
             : "border-[var(--color-border)] bg-[var(--color-bg-elev-2)]/60 text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]",
         )}
-        title={hasKey ? "Using your Groq key (unlimited)" : "Settings"}
-        aria-label="Settings"
+        title={
+          hasKey
+            ? "Using your Groq key — unlimited daily quota. Click to manage."
+            : "Bring your own Groq key to bypass the shared 100/day quota"
+        }
+        aria-label={hasKey ? "Manage your Groq key" : "Bring your own Groq key"}
         aria-expanded={open}
       >
-        <Settings className="h-3.5 w-3.5" />
+        <KeyRound className="h-3.5 w-3.5" />
+        <span>{hasKey ? "Your key" : "BYO key"}</span>
       </button>
 
       {open && (
