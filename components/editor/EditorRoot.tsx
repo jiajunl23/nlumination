@@ -8,9 +8,11 @@ import {
   Cloud,
   Download,
   Loader2,
+  Palette,
   RefreshCcw,
   RotateCcw,
   Sliders,
+  X,
 } from "lucide-react";
 import { Canvas, type CanvasHandle } from "./Canvas";
 import { DropZone } from "./DropZone";
@@ -27,6 +29,23 @@ import {
 import { originalUrl } from "@/lib/storage/url";
 import { cn } from "@/lib/utils";
 import editorStyles from "./editor.module.css";
+
+// Convert a manifest LUT id into something legible for the on-canvas pill.
+// `rt-color-creativepack-1-tealorange`            -> "tealorange"
+// `rt-color-polaroid-polaroid-669-cold-3`         -> "polaroid 669 cold 3"
+// `t3-color-negative-kodak-portra-400`            -> "kodak portra 400"
+function humanLutName(id: string): string {
+  const stripped = id
+    .replace(/^rt-color-creativepack-1-/, "")
+    .replace(/^rt-color-/, "")
+    .replace(/^rt-black-and-white-/, "")
+    .replace(/^t3-color-(?:negative|slide)-/, "")
+    .replace(/^t3-black-and-white-/, "");
+  const tokens = stripped.split("-");
+  const out: string[] = [];
+  for (const t of tokens) if (out[out.length - 1] !== t) out.push(t);
+  return out.join(" ");
+}
 
 export function EditorRoot() {
   const router = useRouter();
@@ -444,6 +463,27 @@ export function EditorRoot() {
                   Start over
                 </button>
               </div>
+              {params.lutId && params.lutOpacity > 0.001 && (
+                <div className="absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-full border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/15 px-3 py-1 text-xs font-medium text-[var(--color-accent)] backdrop-blur">
+                  <Palette className="h-3 w-3" />
+                  <span title={params.lutId}>
+                    LUT · {humanLutName(params.lutId)}
+                  </span>
+                  <span className="rounded-full bg-[var(--color-accent)]/20 px-1.5 py-0.5 text-[10px]">
+                    {Math.round(params.lutOpacity * 100)}%
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setParams((p) => ({ ...p, lutId: null, lutOpacity: 1 }))
+                    }
+                    title="Remove LUT (keeps slider adjustments)"
+                    className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full text-[var(--color-accent)]/70 transition hover:bg-[var(--color-accent)]/20 hover:text-[var(--color-accent)]"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="absolute inset-6">
