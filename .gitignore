@@ -53,3 +53,16 @@ eval/reports/
 # python tooling cache
 __pycache__/
 *.pyc
+
+# Playwright verification screenshots (kept locally for review, not source)
+/tour-*.jpg
+/start-over-*.jpg
+/lut-pill-*.jpg
+/byo-key-*.jpg
+/settings-popover.jpg
+/sample-buttons-new.jpg
+/sample-lakeside-loaded.jpg
+/lut-tour-*.png
+/playthrough-*.png
+/debug-current-state.png
+/LUT_test.JPEG
