@@ -40,6 +40,49 @@ body {
   color: #0a0a0c;
 }
 
+/*
+ * Cursor + selection baseline for interactive elements.
+ *
+ * Tailwind v4 dropped the preflight rule that auto-applied
+ * `cursor: pointer` to <button>, which v3 had. Without it, hovering
+ * between a button's clickable area and the text inside it flickered
+ * between the default arrow and the text I-beam — particularly bad
+ * on our `<div role="button">` patterns (DropZone) where the user
+ * agent stylesheet doesn't kick in either.
+ *
+ * Re-applying it explicitly to every interactive surface. `:disabled`
+ * and `aria-disabled` get excluded so the `cursor: not-allowed` from
+ * Tailwind's `disabled:cursor-not-allowed` still wins.
+ *
+ * `user-select: none` on the same surfaces stops drag-across-buttons
+ * from highlighting their text labels, which is the other half of
+ * the "feels bad" experience the cursor flicker created.
+ */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a[href],
+  label[for],
+  select:not(:disabled),
+  summary {
+    cursor: pointer;
+    user-select: none;
+  }
+
+  /* Make every descendant of an interactive surface inherit the
+     pointer, so child <span>/<img>/<svg> elements don't flip the
+     cursor back. Descendant combinator (no `>`) so deeply nested
+     icons + text spans also inherit. `cursor: inherit` is intentional
+     here — we want disabled-state cursor-not-allowed to also propagate. */
+  button *,
+  [role="button"] *,
+  a[href] *,
+  label[for] *,
+  summary * {
+    cursor: inherit;
+  }
+}
+
 @layer utilities {
   @keyframes wave-a {
     0%, 100% { transform: translate3d(0, 0, 0); }
