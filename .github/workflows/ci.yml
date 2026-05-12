@@ -6,11 +6,17 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
         with: { version: 10 }
       - uses: actions/setup-node@v4
@@ -18,11 +24,13 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run typecheck
-      - run: pnpm run build
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Build
+        run: pnpm run build
         env:
-          # Build needs these to not crash at module-eval time. Real values
-          # live in Vercel; placeholders are enough for the static pass.
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_placeholder
           CLERK_SECRET_KEY: sk_test_placeholder
           DATABASE_URL: postgres://placeholder@localhost/db
@@ -30,3 +38,20 @@ jobs:
           CLOUDINARY_CLOUD_NAME: placeholder
           CLOUDINARY_API_KEY: placeholder
           CLOUDINARY_API_SECRET: placeholder
+
+      - name: Dependency audit (high+)
+        run: pnpm audit --audit-level=high
+
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
