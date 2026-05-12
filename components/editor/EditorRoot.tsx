@@ -8,6 +8,7 @@ import {
   Cloud,
   Download,
   Loader2,
+  RefreshCcw,
   RotateCcw,
   Sliders,
 } from "lucide-react";
@@ -54,6 +55,9 @@ export function EditorRoot() {
   const [loading, setLoading] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
   const [adjustmentsOpen, setAdjustmentsOpen] = useState(false);
+  // Bumped on Start-over to force-remount the ChatPanel (which carries its
+  // own localStorage-hydrated turn history) and Canvas (drops GL state).
+  const [sessionKey, setSessionKey] = useState(0);
 
   const isPristine = params === DEFAULT_PARAMS;
   const renderParams = showOriginal ? DEFAULT_PARAMS : params;
@@ -66,10 +70,63 @@ export function EditorRoot() {
     setCloudinaryUrl(null);
   }, []);
 
+  // Wipe everything tied to the current photo — image, params, LUT,
+  // chat history, ?photoId= in the URL — and return to the empty
+  // editor (DropZone visible). Used by the "Start over" button so users
+  // don't have to bounce through the home page to abandon an edit.
+  const handleStartOver = useCallback(() => {
+    const dirty = !isPristine || hasImage;
+    if (dirty) {
+      const ok = window.confirm(
+        "Start over? This clears the current photo, all edits, and the chat session. Unsaved changes will be lost.",
+      );
+      if (!ok) return;
+    }
+    setSource(null);
+    setHasImage(false);
+    setFilename(null);
+    setPhotoId(null);
+    setCloudinaryUrl(null);
+    setStats(null);
+    setFrame(null);
+    setImageVisible(false);
+    setParams(DEFAULT_PARAMS);
+    setShowOriginal(false);
+    setError(null);
+    setInfo(null);
+    appliedLutIdRef.current = null;
+    canvasRef.current?.setLut(null);
+    // ChatPanel hydrates turn history from localStorage at mount, so we
+    // both clear the key and bump sessionKey to force a fresh mount.
+    try {
+      window.localStorage.removeItem("nlumination.turnHistory:v1");
+    } catch {
+      /* ignore */
+    }
+    setSessionKey((k) => k + 1);
+    // Strip ?photoId= from the URL so a refresh doesn't re-hydrate the photo.
+    if (search.get("photoId")) {
+      router.replace("/editor");
+    }
+  }, [isPristine, hasImage, router, search]);
+
   // Track the LUT id currently uploaded to the WebGL pipeline so we can
   // skip re-decoding when only lutOpacity changes (params.lutId unchanged).
   // Reset when the source image changes (loading a new photo wipes GL state).
   const appliedLutIdRef = useRef<string | null>(null);
+
+  // Dev-only: expose a window helper so we can step through every LUT
+  // in the manifest manually, bypassing the LLM. Used by playwright-driven
+  // visual QA. Stripped in production builds via NODE_ENV guard.
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    (window as unknown as { __setLut?: (id: string | null, op?: number) => void }).__setLut = (id, op = 1) => {
+      setParams((p) => ({ ...p, lutId: id, lutOpacity: op }));
+    };
+    return () => {
+      delete (window as unknown as { __setLut?: unknown }).__setLut;
+    };
+  }, []);
 
   // Watch params.lutId — when the AI selects a new LUT seed, fetch the
   // HaldCLUT PNG, decode to CubeLut, and push to the WebGL pipeline.
@@ -360,6 +417,7 @@ export function EditorRoot() {
               )}
             >
               <Canvas
+                key={sessionKey}
                 ref={canvasRef}
                 source={source}
                 params={renderParams}
@@ -376,6 +434,15 @@ export function EditorRoot() {
                     {filename}
                   </span>
                 )}
+                <button
+                  type="button"
+                  onClick={handleStartOver}
+                  title="Start over — clear photo, edits, and chat session"
+                  className="flex items-center gap-1 rounded-full bg-[var(--color-bg)]/60 px-3 py-1 text-xs text-[var(--color-fg-muted)] backdrop-blur transition hover:bg-[var(--color-bg)]/80 hover:text-[var(--color-fg)]"
+                >
+                  <RefreshCcw className="h-3 w-3" />
+                  Start over
+                </button>
               </div>
             </div>
           ) : (
@@ -389,6 +456,7 @@ export function EditorRoot() {
       {/* Right column: chat panel + collapsible sliders + save */}
       <aside className="flex flex-col gap-3">
         <ChatPanel
+          key={sessionKey}
           params={params}
           onParams={setParams}
           stats={stats}
